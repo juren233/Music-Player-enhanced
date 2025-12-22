@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { fetchPlaylist, getAudioUrl, fetchLyrics, fetchComments } from './services/musicApi';
-import { Track, LyricLine, Comment } from './types';
+import { fetchPlaylist, getAudioUrl, fetchLyrics, fetchComments, fetchRecommendedPlaylists } from './services/musicApi';
+import { Track, LyricLine, Comment, RecommendedPlaylist } from './types';
 import { MusicPlayer } from './components/MusicPlayer';
 import { APP_VERSION, DEFAULT_VOLUME } from './constants';
-import { MessageSquare, ListMusic, Loader2, Heart, X, Search, Disc, AlertCircle, RefreshCw } from 'lucide-react';
+import { MessageSquare, ListMusic, Loader2, Heart, X, Search, Disc, AlertCircle, RefreshCw, Grid, Play, Music2 } from 'lucide-react';
 
 const DEFAULT_PLAYLIST_ID = '833444858'; 
 
@@ -14,6 +14,7 @@ const App: React.FC = () => {
   // Data State
   const [playlistId, setPlaylistId] = useState(DEFAULT_PLAYLIST_ID);
   const [playlist, setPlaylist] = useState<Track[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendedPlaylist[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -45,6 +46,7 @@ const App: React.FC = () => {
   
   // UI Toggles
   const [showQueue, setShowQueue] = useState(false);
+  const [viewTab, setViewTab] = useState<'recommend' | 'queue'>('recommend');
   const [showComments, setShowComments] = useState(false);
   
   // Theme State
@@ -115,6 +117,13 @@ const App: React.FC = () => {
   useEffect(() => {
     loadPlaylistData(playlistId);
   }, []); 
+
+  // Fetch recommendations when queue view opens
+  useEffect(() => {
+      if (showQueue && recommendations.length === 0) {
+          fetchRecommendedPlaylists().then(setRecommendations);
+      }
+  }, [showQueue]);
 
   const extractIdFromInput = (input: string): string | null => {
       const clean = input.trim();
@@ -326,6 +335,11 @@ const App: React.FC = () => {
       }
   }, [currentTrack]);
 
+  const handleRecommendationClick = async (id: number) => {
+    await loadPlaylistData(id.toString());
+    setShowQueue(false);
+  };
+
   useEffect(() => {
       if (audioRef.current) audioRef.current.volume = volume;
       localStorage.setItem('vinyl_volume', volume.toString());
@@ -342,21 +356,14 @@ const App: React.FC = () => {
     const container = lyricsContainerRef.current;
     
     // PERFORMANCE: Read Layout (Batch Read)
-    // 1. Get container bounds
     const containerRect = container.getBoundingClientRect();
     const activeZone = containerRect.height * 0.45; 
     const center = containerRect.top + containerRect.height / 2;
     const activeIdx = activeIndexRef.current;
     const isScrolling = isUserScrollingRef.current;
     
-    // 2. Get children and read their rects in one go
-    // Note: We use Array.from once. In a perfect world we'd cache the children array if length doesn't change, 
-    // but Array.from is fast enough compared to the layout thrashing.
     const children = Array.from(container.children) as HTMLElement[];
     const childrenStates = children.map((child, i) => {
-        // Optimization: if we know the height of items is roughly fixed, we could approximate.
-        // But getBoundingClientRect is unavoidable for precise "fisheye" effect.
-        // The key is doing all reads BEFORE any writes.
         const rect = child.getBoundingClientRect();
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(center - elementCenter);
@@ -365,12 +372,9 @@ const App: React.FC = () => {
 
     // PERFORMANCE: Write Layout (Batch Write)
     childrenStates.forEach(({ child, distance, i }) => {
-        // Optimization: Skip calculation for off-screen elements
-        // If element is further than 1 container height away from center, hide it static
         if (distance > containerRect.height) {
-            // Only write if it's not already hidden to avoid unnecessary paint (browser optimization handles this mostly)
             child.style.transform = `scale(0.9)`;
-            child.style.filter = `blur(0px)`; // No blur for offscreen items (Save GPU)
+            child.style.filter = `blur(0px)`; 
             child.style.opacity = `0.1`; 
             return;
         }
@@ -386,7 +390,6 @@ const App: React.FC = () => {
              intensity = Math.pow(intensity, 1.3); // Ease
 
              const scale = 1 - (intensity * 0.15); 
-             // Clamp blur to integer to possibly help caching, though negligible
              const blur = (intensity * 4).toFixed(1); 
              const opacity = (1 - (intensity * 0.7)).toFixed(2); 
 
@@ -437,13 +440,6 @@ const App: React.FC = () => {
   // --- Background & Styles ---
   const backgroundLayer = useMemo(() => (
     <>
-      {/* 
-         PERFORMANCE OPTIMIZATION:
-         Removed the top-level backdrop-blur-[100px] layer.
-         The blobs are already blurred. Adding a backdrop-blur on top of blurred moving elements 
-         forces the GPU to re-sample the entire frame buffer every frame. 
-         Replaced with simple semi-transparent overlays.
-      */}
       <div className="fixed inset-0 -z-50 bg-[#050505]">
           <div className="absolute inset-0 overflow-hidden pointer-events-none transform-gpu">
               <div className="absolute inset-0 opacity-20 transition-colors duration-[2000ms]" style={{ background: `rgb(${dominantColor})` }} />
@@ -456,7 +452,6 @@ const App: React.FC = () => {
                  style={{ background: `radial-gradient(circle at 50% 50%, rgb(${dominantColor}), transparent 60%)`, animationDirection: 'reverse', animationDuration: '35s' }}
               />
           </div>
-          {/* Replaced backdrop-blur with simple opacity */}
           <div className="absolute inset-0 bg-black/60" /> 
       </div>
 
@@ -469,7 +464,6 @@ const App: React.FC = () => {
                  style={{ background: `radial-gradient(circle at 50% 50%, rgb(${dominantColor}), transparent 70%)`, animationDuration: '50s' }}
               />
           </div>
-           {/* Replaced backdrop-blur with simple opacity */}
           <div className="absolute inset-0 bg-white/40" />
       </div>
     </>
@@ -482,59 +476,126 @@ const App: React.FC = () => {
   const drawerBg = isDarkMode ? 'bg-neutral-900/95' : 'bg-white/90';
   const drawerBorder = isDarkMode ? 'border-white/5' : 'border-black/5';
 
-  const queueDrawer = useMemo(() => (
-      <>
-        <div 
-            className={`fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px] transition-opacity duration-500 ${showQueue ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            onClick={() => setShowQueue(false)}
-        />
-        <div className={`fixed inset-y-0 left-0 w-80 backdrop-blur-2xl border-r shadow-2xl z-[50] transform transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${showQueue ? 'translate-x-0' : '-translate-x-full'} ${drawerBg} ${drawerBorder} ${transitionClass}`}>
-                <div className={`p-6 pt-12 flex flex-col h-full ${textColor} ${transitionClass}`}>
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-xl font-bold flex items-center gap-2"><ListMusic /> 播放列表</h2>
-                        <button onClick={() => setShowQueue(false)} className={`p-2 rounded-full ${transitionClass} ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
-                    </div>
-                    
-                    <form onSubmit={handlePlaylistSubmit} className="mb-6">
-                        <label className={`text-xs mb-1 block pl-1 ${transitionClass} ${textSubColor}`}>切换歌单 (支持网易云歌单ID或链接)</label>
-                        <div className="relative">
+  const queueOverlay = useMemo(() => (
+      <div className={`fixed inset-0 z-[60] transition-all duration-500 flex items-center justify-center ${showQueue ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-xl transition-opacity duration-500" 
+            onClick={() => setShowQueue(false)} 
+          />
+  
+          {/* Content Container */}
+          <div className={`relative w-full h-full md:inset-10 md:w-auto md:h-auto md:fixed md:rounded-2xl bg-[#0f0f10]/80 border border-white/10 flex flex-col overflow-hidden shadow-2xl transition-transform duration-500 md:max-w-6xl md:min-w-[80vw] ${showQueue ? 'scale-100 translate-y-0' : 'scale-95 translate-y-8'}`}>
+              
+              {/* Header / Tabs / Search */}
+              <div className="flex-none p-4 md:p-6 border-b border-white/5 flex flex-col md:flex-row gap-4 items-center justify-between bg-black/20">
+                   {/* Tabs */}
+                   <div className="flex bg-black/30 p-1 rounded-lg self-start md:self-auto w-full md:w-auto">
+                      <button 
+                          onClick={() => setViewTab('recommend')}
+                          className={`flex-1 md:flex-none px-4 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewTab === 'recommend' ? 'bg-white/10 text-white shadow-lg border border-white/5' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+                      >
+                          <Grid className="w-4 h-4" /> 推荐歌单
+                      </button>
+                      <button 
+                           onClick={() => setViewTab('queue')}
+                           className={`flex-1 md:flex-none px-4 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewTab === 'queue' ? 'bg-white/10 text-white shadow-lg border border-white/5' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+                      >
+                          <ListMusic className="w-4 h-4" /> 当前播放 ({playlist.length})
+                      </button>
+                   </div>
+  
+                   <div className="flex gap-4 w-full md:w-auto items-center">
+                       {/* Search Input */}
+                       <form onSubmit={handlePlaylistSubmit} className="relative flex-1 md:w-80 group">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-white/70 transition-colors" />
                             <input 
                                 value={tempPlaylistId}
                                 onChange={(e) => setTempPlaylistId(e.target.value)}
-                                placeholder="输入歌单 ID 或 粘贴链接..."
-                                className={`w-full border rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none ${transitionClass} ${isDarkMode ? 'bg-white/10 border-white/10 focus:border-white/30 focus:bg-white/20 text-white' : 'bg-black/5 border-black/10 focus:border-black/20 focus:bg-black/10 text-black'}`}
+                                placeholder="输入网易云歌单 ID 或 链接..."
+                                className="w-full bg-black/20 border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white focus:bg-black/40 focus:border-white/30 outline-none transition-all placeholder:text-white/20"
                             />
-                            <Search className={`w-4 h-4 absolute left-3 top-2.5 ${transitionClass} ${isDarkMode ? 'text-white/40' : 'text-black/40'}`} />
-                        </div>
-                        <button type="submit" className={`w-full mt-2 font-bold py-2 rounded-lg text-xs ${transitionClass} ${isDarkMode ? 'bg-white text-black hover:bg-neutral-200' : 'bg-black text-white hover:bg-neutral-800'}`}>
-                            加载歌单
-                        </button>
-                    </form>
+                       </form>
+                       
+                       <button onClick={() => setShowQueue(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors shrink-0">
+                          <X className="w-6 h-6 text-white/70 hover:text-white" />
+                       </button>
+                   </div>
+              </div>
+  
+              {/* Content Body */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth no-scrollbar">
+                  {viewTab === 'recommend' ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-8 pb-20">
+                          {recommendations.length > 0 ? recommendations.map(list => (
+                              <div 
+                                  key={list.id} 
+                                  onClick={() => handleRecommendationClick(list.id)}
+                                  className="group cursor-pointer flex flex-col gap-3"
+                              >
+                                  <div className="aspect-square rounded-xl overflow-hidden relative shadow-lg bg-white/5">
+                                      <img src={list.picUrl} className="w-full h-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:scale-105" loading="lazy" />
+                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-white/10 transition-colors duration-300" />
+                                      {/* Play overlay */}
+                                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                            <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-xl transform scale-90 group-hover:scale-100 transition-transform">
+                                                <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+                                            </div>
+                                      </div>
+                                      <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] flex items-center gap-1 text-white/90 font-medium">
+                                          <Play className="w-3 h-3 fill-current" /> {(list.playCount / 10000).toFixed(0)}万
+                                      </div>
+                                  </div>
+                                  <h3 className="text-sm font-medium text-white/80 line-clamp-2 leading-relaxed group-hover:text-white transition-colors">{list.name}</h3>
+                              </div>
+                          )) : (
+                              // Skeletons
+                              Array(10).fill(0).map((_, i) => (
+                                  <div key={i} className="flex flex-col gap-3 animate-pulse">
+                                      <div className="aspect-square rounded-xl bg-white/5" />
+                                      <div className="h-4 bg-white/5 rounded w-3/4" />
+                                  </div>
+                              ))
+                          )}
+                      </div>
+                  ) : (
+                      <div className="space-y-1 pb-20 max-w-4xl mx-auto">
+                          {playlist.map((track, i) => (
+                              <div 
+                                  key={track.id} 
+                                  onClick={() => { setCurrentIndex(i); setIsPlaying(true); }}
+                                  className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer group transition-all duration-300 ${
+                                      i === currentIndex 
+                                          ? 'bg-white/10 text-white' 
+                                          : 'text-white/60 hover:bg-white/5 hover:text-white'
+                                  }`}
+                              >
+                                  <div className="relative w-12 h-12 shrink-0">
+                                    <img src={track.al.picUrl} loading="lazy" className="w-full h-full rounded-md object-cover shadow-sm" />
+                                    {i === currentIndex && (
+                                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-md backdrop-blur-[1px]">
+                                            <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                                        </div>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                      <div className={`text-base font-medium truncate ${i === currentIndex ? 'text-white' : 'text-white/90'}`}>{track.name}</div>
+                                      <div className="text-xs truncate text-white/40 group-hover:text-white/60">{track.ar.map(a => a.name).join(', ')}</div>
+                                  </div>
 
-                    <div className="flex-1 overflow-y-auto no-scrollbar space-y-1 pb-20">
-                        {playlist.map((track, i) => (
-                            <div 
-                                key={track.id} 
-                                onClick={() => { setCurrentIndex(i); setIsPlaying(true); }}
-                                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${transitionClass} ${
-                                    i === currentIndex 
-                                        ? (isDarkMode ? 'bg-white/20 text-white' : 'bg-black/10 text-black') 
-                                        : (isDarkMode ? 'hover:bg-white/5 text-white/80' : 'hover:bg-black/5 text-black/80')
-                                }`}
-                            >
-                                <img src={track.al.picUrl} loading="lazy" className="w-10 h-10 rounded-md object-cover" />
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium truncate">{track.name}</div>
-                                    <div className={`text-xs truncate ${transitionClass} ${isDarkMode ? 'text-white/40' : 'text-black/40'}`}>{track.ar.map(a => a.name).join(', ')}</div>
-                                </div>
-                                {i === currentIndex && <div className={`w-2 h-2 rounded-full animate-pulse ${isDarkMode ? 'bg-white' : 'bg-black'}`} />}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-        </div>
-      </>
-  ), [showQueue, playlist, currentIndex, isDarkMode, tempPlaylistId, drawerBg, drawerBorder, textColor, textSubColor]);
+                                  <div className="text-xs font-mono text-white/20 w-12 text-right group-hover:text-white/40">
+                                      {Math.floor(track.dt / 1000 / 60)}:{(Math.floor(track.dt / 1000) % 60).toString().padStart(2, '0')}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
+  
+          </div>
+      </div>
+  ), [showQueue, viewTab, recommendations, playlist, currentIndex, tempPlaylistId, isPlaying]);
 
   const commentsDrawer = useMemo(() => (
       <>
@@ -767,7 +828,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {queueDrawer}
+      {queueOverlay}
       {commentsDrawer}
 
       <MusicPlayer 

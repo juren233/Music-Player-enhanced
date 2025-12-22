@@ -1,5 +1,5 @@
 
-import { Track, LyricLine, Comment } from '../types';
+import { Track, LyricLine, Comment, RecommendedPlaylist } from '../types';
 
 // Use a rotating set of public APIs to improve stability
 // Updated list with more reliable Vercel deployments and public instances
@@ -64,6 +64,16 @@ export const fetchPlaylist = async (id: string): Promise<Track[]> => {
   } catch (e) {
     console.error("Failed to fetch playlist", e);
     throw e; // Re-throw to let App handle the error state
+  }
+};
+
+export const fetchRecommendedPlaylists = async (): Promise<RecommendedPlaylist[]> => {
+  try {
+    const data = await fetchWithFailover('/personalized?limit=30');
+    return data.result || [];
+  } catch (e) {
+    console.warn("Failed to fetch recommendations", e);
+    return [];
   }
 };
 

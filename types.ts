@@ -38,3 +38,11 @@ export interface Comment {
   time: number;
   likedCount: number;
 }
+
+export interface RecommendedPlaylist {
+  id: number;
+  name: string;
+  picUrl: string;
+  playCount: number;
+  copywriter?: string;
+}
