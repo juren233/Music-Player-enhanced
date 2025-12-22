@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { fetchPlaylist, getAudioUrl, fetchLyrics, fetchComments } from './services/musicApi';
 import { Track, LyricLine, Comment } from './types';
 import { MusicPlayer } from './components/MusicPlayer';
@@ -403,34 +403,13 @@ const App: React.FC = () => {
                     
                     let containerClass = "";
                     let textClass = "";
-                    let activeStyle = {};
                     
                     // Logic for spacing: Continuations are closer
                     const marginClass = line.isContinuation ? "mt-3" : "mt-10";
 
-                    const activeBaseColor = isDarkMode ? '#ffffff' : '#000000';
-                    // Make the "unread" part of the active line significantly dimmer for contrast
-                    const activeDimColor = isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)';
-
                     if (isActive) {
-                        const progress = currentTime < line.time ? 0 : 
-                                         currentTime > line.time + line.duration ? 100 : 
-                                         ((currentTime - line.time) / line.duration) * 100;
-                        
                         containerClass = "scale-100 blur-0 opacity-100";
                         textClass = "font-extrabold text-3xl lg:text-5xl drop-shadow-sm";
-                        
-                        // Creates a soft 5% gradient edge instead of a hard pixel stop
-                        activeStyle = {
-                            backgroundImage: `linear-gradient(90deg, 
-                                ${activeBaseColor} ${Math.max(0, progress - 3)}%, 
-                                ${activeDimColor} ${Math.min(100, progress + 3)}%
-                            )`,
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            color: 'transparent' // Fallback
-                        };
                     } else if (distance === 1) {
                         containerClass = "scale-[0.98] blur-[0.5px] opacity-60";
                         textClass = `font-bold text-2xl lg:text-4xl ${isDarkMode ? 'text-white/90' : 'text-black/80'}`;
@@ -442,18 +421,65 @@ const App: React.FC = () => {
                         textClass = `font-bold text-lg lg:text-2xl ${lyricInactiveColor}`;
                     }
 
+                    // --- Character Level Rendering for Active Line ---
+                    // This solves the issue where gradients span the entire box width, breaking on multi-line text.
+                    const renderActiveContent = () => {
+                        const progress = currentTime < line.time ? 0 : 
+                                         currentTime > line.time + line.duration ? 1 : 
+                                         (currentTime - line.time) / line.duration;
+                        
+                        const chars = line.text.split('');
+                        const totalChars = chars.length;
+                        const activeCharIndex = Math.floor(progress * totalChars);
+                        const subProgress = (progress * totalChars) % 1; // 0 to 1 for the current char
+
+                        return (
+                            <span className={`inline-block w-full break-words leading-tight tracking-tight py-1 ${textClass} ${transitionClass}`}>
+                                {chars.map((char, charIdx) => {
+                                    if (charIdx < activeCharIndex) {
+                                        // Past characters: Fully Opaque
+                                        return <span key={charIdx} className={isDarkMode ? 'text-white' : 'text-black'}>{char}</span>;
+                                    } else if (charIdx > activeCharIndex) {
+                                        // Future characters: Transparent/Dim
+                                        return <span key={charIdx} className={isDarkMode ? 'text-white/30' : 'text-black/30'}>{char}</span>;
+                                    } else {
+                                        // Current character: Gradient
+                                        // We limit the gradient to just this character, so wrapping doesn't break it.
+                                        const p = subProgress * 100;
+                                        const activeColor = isDarkMode ? '#ffffff' : '#000000';
+                                        const dimColor = isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+                                        
+                                        return (
+                                            <span 
+                                                key={charIdx} 
+                                                style={{
+                                                    backgroundImage: `linear-gradient(90deg, ${activeColor} ${p}%, ${dimColor} ${p}%)`,
+                                                    WebkitBackgroundClip: 'text',
+                                                    WebkitTextFillColor: 'transparent',
+                                                    backgroundClip: 'text',
+                                                    color: 'transparent'
+                                                }}
+                                            >
+                                                {char}
+                                            </span>
+                                        );
+                                    }
+                                })}
+                            </span>
+                        );
+                    };
+
                     return (
                         <div 
                             key={i} 
                             className={`transition-[transform,opacity,filter,margin] duration-700 ease-out origin-left cursor-pointer hover:opacity-80 group w-full ${containerClass} ${marginClass}`}
                             onClick={() => handleSeek(line.time)}
                         >
-                            <span 
-                                className={`inline-block leading-tight tracking-tight py-1 break-words text-balance ${textClass} ${transitionClass}`} 
-                                style={activeStyle}
-                            >
-                                {line.text}
-                            </span>
+                            {isActive ? renderActiveContent() : (
+                                <span className={`inline-block leading-tight tracking-tight py-1 break-words text-balance ${textClass} ${transitionClass}`}>
+                                    {line.text}
+                                </span>
+                            )}
                             
                             {line.trans && (
                                 <p 
