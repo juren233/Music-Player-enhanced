@@ -1,70 +1,128 @@
-
 import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from '../types';
 
-// Use a rotating set of public APIs to improve stability
-// Updated list with more reliable Vercel deployments and public instances
+// 优化后的 API 列表，包含更稳定的镜像源
+// 移除了部分极其不稳定的 Vercel 免费实例
 const API_BASES = [
-  'https://netease-cloud-music-api-anon.vercel.app', // Highly reliable
-  'https://music.cyrilstudio.top',
-  'https://api-music.imsyy.top',
-  'https://netease-cloud-music-api-demo.vercel.app',
+  'https://music.cyrilstudio.top', // 通常速度较快
+  'https://netease-cloud-music-api-anon.vercel.app', // 官方维护的匿名版
+  'https://api.music.areschang.top', // 备用镜像
   'https://music-api.heheda.top',
-  'https://ncmapi.redd.one', // Sometimes slow
+  'https://ncmapi.redd.one',
+  'https://music-api-theta-liart.vercel.app',
   'https://ncm.cloud.zlib.cn',
-  // New backups
-  'https://netease-cloud-music-api-git-main-fe-canvas.vercel.app',
-  'https://music-api-theta-liart.vercel.app'
 ];
 
-// Helper to try multiple endpoints
-const fetchWithFailover = async (path: string): Promise<any> => {
-  // Filter out official API if accidentally included (CORS issues in browser)
-  const validBases = API_BASES.filter(b => !b.includes('music.163.com/api')); 
-  let lastError: any = null;
+// 缓存当前最快的 API 节点
+let currentBestBase: string | null = null;
 
-  for (const base of validBases) {
+/**
+ * 带有超时的 Fetch 包装器
+ * 限制每个单独请求的最大等待时间，避免被慢节点拖死
+ */
+const fetchWithTimeout = async (url: string, timeout = 5000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
-      const controller = new AbortController();
-      // Increased timeout to 8s to handle slower public instances / cold starts
-      const timeoutId = setTimeout(() => controller.abort(), 8000); 
-
-      // Add timestamp to prevent caching which can cause stale errors
-      const separator = path.includes('?') ? '&' : '?';
-      const url = `${base}${path}${separator}timestamp=${Date.now()}`;
-
-      const res = await fetch(url, { 
-        signal: controller.signal 
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
-      
-      const data = await res.json();
-      
-      // Check for logical API error (Netease API usually returns 200 with a code field)
-      if (data.code && data.code !== 200) {
-         throw new Error(`API Error Code: ${data.code}`);
-      }
-
-      return data;
-    } catch (e) {
-      // console.warn(`API ${base} failed:`, e);
-      lastError = e;
-      continue;
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        throw error;
     }
-  }
+};
+
+/**
+ * Polyfill-like implementation for Promise.any behavior to fix TS error.
+ * Returns the first fulfilled promise, or rejects if all fail.
+ */
+const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
+    return new Promise((resolve, reject) => {
+        if (promises.length === 0) {
+            reject(new Error("No promises provided"));
+            return;
+        }
+
+        let rejectedCount = 0;
+        const errors: any[] = [];
+
+        promises.forEach((p) => {
+            Promise.resolve(p).then(resolve).catch((e) => {
+                rejectedCount++;
+                errors.push(e);
+                if (rejectedCount === promises.length) {
+                    reject(new Error("All promises rejected"));
+                }
+            });
+        });
+    });
+};
+
+/**
+ * 智能 API 请求函数
+ * 策略：
+ * 1. 如果已有最优节点，优先使用。
+ * 2. 如果无最优节点或请求失败，触发"赛马模式" (promiseAny)，同时请求前 N 个节点，谁快用谁。
+ */
+const fetchWithFailover = async (path: string): Promise<any> => {
+  const separator = path.includes('?') ? '&' : '?';
+  const timestamp = `timestamp=${Date.now()}`;
   
-  throw lastError || new Error("All API endpoints failed");
+  // 1. 快速通道：如果已经锁定了最快节点，直接尝试
+  if (currentBestBase) {
+      try {
+          const url = `${currentBestBase}${path}${separator}${timestamp}`;
+          const res = await fetchWithTimeout(url, 6000); // 稍微放宽一点超时给已验证节点
+          if (!res.ok) throw new Error(`Status ${res.status}`);
+          
+          const data = await res.json();
+          if (data.code && data.code !== 200) throw new Error(`API Code ${data.code}`);
+          
+          return data;
+      } catch (e) {
+          console.warn(`Cached node ${currentBestBase} failed, switching to Race Mode.`, e);
+          currentBestBase = null; // 缓存失效，降级到赛马模式
+      }
+  }
+
+  // 2. 赛马通道：选取前 5 个节点进行并发竞速
+  // 这种方式虽然多发了请求，但能确保用户连接到当前网络环境下最快的节点
+  const candidates = API_BASES.slice(0, 5); 
+  
+  try {
+      // promiseAny 会等待第一个 *成功* (Fulfilled) 的结果
+      const winnerResponse = await promiseAny(
+          candidates.map(async (base) => {
+              const url = `${base}${path}${separator}${timestamp}`;
+              const res = await fetchWithTimeout(url, 5000); // 竞速时超时要短，快速过滤慢节点
+              if (!res.ok) throw new Error('Network response was not ok');
+              
+              const data = await res.json();
+              if (data.code && data.code !== 200) throw new Error(`API Error: ${data.code}`);
+              
+              // 副作用：胜利者即刻成为新的最优节点
+              if (!currentBestBase) {
+                  currentBestBase = base;
+                  // console.log(`🏆 New fastest API node found: ${base}`);
+              }
+              return data;
+          })
+      );
+      
+      return winnerResponse;
+  } catch (aggregateError) {
+      console.error("All API candidates failed.", aggregateError);
+      throw new Error("无法连接到任何音乐服务器，请检查网络连接。");
+  }
 };
 
 export const fetchPlaylist = async (id: string): Promise<Track[]> => {
   try {
-    // UPDATED: Increased limit from 50 to 200
     const data = await fetchWithFailover(`/playlist/track/all?id=${id}&limit=200&offset=0`);
     return data.songs || [];
   } catch (e) {
     console.error("Failed to fetch playlist", e);
-    throw e; // Re-throw to let App handle the error state
+    throw e;
   }
 };
 
@@ -73,56 +131,47 @@ export const fetchRecommendedPlaylists = async (): Promise<RecommendedPlaylist[]
     const data = await fetchWithFailover('/personalized?limit=30');
     return data.result || [];
   } catch (e) {
-    console.warn("Failed to fetch recommendations", e);
     return [];
   }
 };
 
 export const searchPlaylists = async (keywords: string): Promise<RecommendedPlaylist[]> => {
   try {
-    // type 1000 = playlists
     const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1000&limit=30`);
     const playlists = data.result?.playlists || [];
     
-    // Map search result format to RecommendedPlaylist format
     return playlists.map((p: any) => ({
       id: p.id,
       name: p.name,
-      picUrl: p.coverImgUrl, // Search results use 'coverImgUrl' instead of 'picUrl'
+      picUrl: p.coverImgUrl, 
       playCount: p.playCount,
-      copywriter: p.creator?.nickname // Use creator name as subtitle
+      copywriter: p.creator?.nickname 
     }));
   } catch (e) {
-    console.warn("Failed to search playlists", e);
     return [];
   }
 };
 
 export const searchSongs = async (keywords: string): Promise<Track[]> => {
   try {
-    // type 1 = songs
     const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1&limit=30`);
     const songs = data.result?.songs || [];
 
-    // Map search result song format to standard Track format
-    // Note: Search results often differ slightly in structure (e.g., 'ar' vs 'artists', 'al' vs 'album')
     return songs.map((s: any) => ({
       id: s.id,
       name: s.name,
-      ar: s.ar || s.artists || [], // Handle potential API inconsistencies
+      ar: s.ar || s.artists || [], 
       al: s.al || s.album || { picUrl: '' },
       dt: s.dt || s.duration || 0,
-      fee: s.fee // UPDATED: Map fee field
+      fee: s.fee 
     }));
   } catch (e) {
-    console.warn("Failed to search songs", e);
     return [];
   }
 };
 
 export const searchArtists = async (keywords: string): Promise<Artist[]> => {
   try {
-    // type 100 = artists
     const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=100&limit=30`);
     const artists = data.result?.artists || [];
 
@@ -132,52 +181,42 @@ export const searchArtists = async (keywords: string): Promise<Artist[]> => {
       picUrl: a.picUrl || a.img1v1Url
     }));
   } catch (e) {
-    console.warn("Failed to search artists", e);
     return [];
   }
 };
 
-// Fetch simplified top songs (fallback)
 export const fetchArtistTopSongs = async (artistId: number): Promise<Track[]> => {
   try {
     const data = await fetchWithFailover(`/artist/top/song?id=${artistId}`);
     return data.songs || [];
   } catch (e) {
-    console.error("Failed to fetch artist top songs", e);
     throw e;
   }
 };
 
-// Fetch artist detail (for profile info)
 export const fetchArtistDetail = async (artistId: number): Promise<any> => {
     try {
         const data = await fetchWithFailover(`/artist/detail?id=${artistId}`);
         return data.data?.artist || data.artist || {};
     } catch (e) {
-        console.warn("Failed to fetch artist detail", e);
         return {};
     }
 };
 
-// Fetch all songs with sorting (hot/time)
 export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'time', limit = 100): Promise<Track[]> => {
     try {
-        // /artist/songs exists on Netease API to get songs with order
         const data = await fetchWithFailover(`/artist/songs?id=${artistId}&order=${order}&limit=${limit}`);
         return data.songs || [];
     } catch (e) {
-        // Fallback to top songs if 'hot' and fetching list fails
         if (order === 'hot') {
             return fetchArtistTopSongs(artistId);
         }
-        console.warn("Failed to fetch artist songs list", e);
         return [];
     }
 };
 
 export const getAudioUrl = async (id: number): Promise<string> => {
-  // Use standard Netease redirect interface for audio
-  // This is a direct Netease URL (not via API proxy) and typically works well for <audio> tags
+  // 保持使用网易云直链，这个通常是最快的且不需要 API 代理
   return `https://music.163.com/song/media/outer/url?id=${id}.mp3`;
 };
 
@@ -203,9 +242,6 @@ const parseLrc = (lrc: string): { time: number; text: string }[] => {
   return result;
 };
 
-// Split configuration
-const CHAR_LIMIT = 50; // Increased limit because we now handle wrapping gracefully
-
 export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
   try {
     const data = await fetchWithFailover(`/lyric?id=${id}`);
@@ -213,11 +249,9 @@ export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
     const original = data.lrc?.lyric ? parseLrc(data.lrc.lyric) : [];
     const translation = data.tlyric?.lyric ? parseLrc(data.tlyric.lyric) : [];
 
-    // Calculate basic durations and map translations
     return original.map((line, index) => {
       const nextLine = original[index + 1];
       const rawDuration = nextLine ? nextLine.time - line.time : 5000;
-      // Ensure a minimum duration for very fast lines to allow transition
       const duration = Math.max(400, rawDuration); 
 
       const transLine = translation.find(t => Math.abs(t.time - line.time) < 500);
@@ -226,12 +260,11 @@ export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
         ...line,
         duration,
         trans: transLine?.text,
-        isContinuation: false // No longer needed as much since we handle wrapping in UI
+        isContinuation: false 
       };
     });
 
   } catch (e) {
-    console.warn("No lyrics found");
     return [];
   }
 };
