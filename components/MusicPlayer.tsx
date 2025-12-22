@@ -39,14 +39,10 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
   const [animatingReverse, setAnimatingReverse] = useState(false);
   const [animatingComments, setAnimatingComments] = useState(false);
   
-  // Progress Bar Dragging State
-  const [isDraggingProgress, setIsDraggingProgress] = useState(false);
+  // Dragging State
+  const [isDragging, setIsDragging] = useState(false);
   const [dragTime, setDragTime] = useState(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
-
-  // Volume Dragging State
-  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
-  const volumeBarRef = useRef<HTMLDivElement>(null);
 
   // Volume Memory for Mute Toggle
   const lastVolumeRef = useRef(volume > 0 ? volume : 0.5);
@@ -87,23 +83,27 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
     }
   };
 
-  // --- Progress Bar Dragging Logic ---
+  // --- Dragging Logic ---
   const calculateTimeFromEvent = (clientX: number) => {
     if (!progressBarRef.current || !duration) return 0;
     const rect = progressBarRef.current.getBoundingClientRect();
+    // Calculate percentage (0 to 1), clamped
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return ratio * duration;
   };
 
-  const handleProgressPointerDown = (e: React.PointerEvent) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Prevent default browser dragging of the element
     e.preventDefault();
-    setIsDraggingProgress(true);
+    setIsDragging(true);
+    
+    // Immediately update visual position to where user clicked
     const newTime = calculateTimeFromEvent(e.clientX);
     setDragTime(newTime);
   };
 
   useEffect(() => {
-    if (!isDraggingProgress) return;
+    if (!isDragging) return;
 
     const handlePointerMove = (e: PointerEvent) => {
       const newTime = calculateTimeFromEvent(e.clientX);
@@ -112,10 +112,12 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
 
     const handlePointerUp = (e: PointerEvent) => {
       const newTime = calculateTimeFromEvent(e.clientX);
+      // Commit the seek operation only when release
       onSeek(newTime);
-      setIsDraggingProgress(false);
+      setIsDragging(false);
     };
 
+    // Attach to window to handle drags that go outside the element
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
 
@@ -123,49 +125,10 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [isDraggingProgress, duration, onSeek]);
-
-  // --- Volume Bar Dragging Logic ---
-  const calculateVolumeFromEvent = (clientX: number) => {
-    if (!volumeBarRef.current) return 0;
-    const rect = volumeBarRef.current.getBoundingClientRect();
-    // Calculate percentage (0 to 1), clamped
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return ratio;
-  };
-
-  const handleVolumePointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    setIsDraggingVolume(true);
-    const newVol = calculateVolumeFromEvent(e.clientX);
-    onVolumeChange(newVol);
-  };
-
-  useEffect(() => {
-    if (!isDraggingVolume) return;
-
-    const handlePointerMove = (e: PointerEvent) => {
-      const newVol = calculateVolumeFromEvent(e.clientX);
-      onVolumeChange(newVol);
-    };
-
-    const handlePointerUp = () => {
-      setIsDraggingVolume(false);
-    };
-
-    // Attach to window to allow dragging outside the element
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [isDraggingVolume, onVolumeChange]);
-
+  }, [isDragging, duration, onSeek]);
 
   // Determine what to display: current playback time OR dragging time
-  const effectiveTime = isDraggingProgress ? dragTime : currentTime;
+  const effectiveTime = isDragging ? dragTime : currentTime;
   const progressPercent = duration ? (effectiveTime / duration) * 100 : 0;
 
   const formatTime = (ms: number) => {
@@ -177,7 +140,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
   };
   
   // Theme Colors
-  const transitionClass = "transition-[color,background-color,border-color,opacity,shadow,transform,filter,height,width] duration-500 ease-[cubic-bezier(0.2,0,0,1)]";
+  const transitionClass = "transition-[color,background-color,border-color,opacity,shadow,transform,filter] duration-500 ease-[cubic-bezier(0.2,0,0,1)]";
   const textColor = isDarkMode ? 'text-white' : 'text-slate-900';
   const textDimColor = isDarkMode ? 'text-white/50' : 'text-slate-500';
   const iconHoverClass = isDarkMode ? 'hover:bg-white/10 hover:text-white' : 'hover:bg-black/5 hover:text-black';
@@ -234,7 +197,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
 
             {/* 2. Controls & Progress (Center) */}
             <div className="flex-1 flex flex-col items-center justify-center max-w-[600px]">
-                {/* Buttons */}
+                {/* Buttons - Redesigned */}
                 <div className="flex items-center gap-8 mb-3">
                     {/* Shuffle Button */}
                     <button 
@@ -254,7 +217,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         <SkipBack className="w-7 h-7 fill-current" />
                     </button>
 
-                    {/* Play/Pause Button */}
+                    {/* Play/Pause Button - Hero Element - Resized from w-16 to w-14 */}
                     <button 
                         onClick={onPlayPause}
                         className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 shadow-xl hover:shadow-2xl ${
@@ -263,6 +226,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                                 : 'bg-black text-white shadow-black/30'
                         }`}
                     >
+                         {/* Icon Morph Container */}
                          <div className="relative w-8 h-8 flex items-center justify-center">
                              <Pause className={`absolute w-full h-full fill-current transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isPlaying ? 'scale-100 rotate-0 opacity-100' : 'scale-50 -rotate-90 opacity-0'}`} />
                              <Play className={`absolute w-full h-full fill-current ml-1 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${!isPlaying ? 'scale-100 rotate-0 opacity-100' : 'scale-50 rotate-90 opacity-0'}`} />
@@ -294,21 +258,17 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                     <span className="w-8 text-right tabular-nums">{formatTime(effectiveTime)}</span>
                     <div 
                         ref={progressBarRef}
-                        className="flex-1 h-3 flex items-center relative group cursor-pointer touch-none" // Increased hit area
-                        onPointerDown={handleProgressPointerDown}
+                        className="flex-1 h-1 rounded-full relative group cursor-pointer bg-current opacity-20 touch-none" 
+                        onPointerDown={handlePointerDown}
                     >
-                        {/* Track Background */}
-                        <div className={`absolute inset-x-0 h-1 rounded-full ${transitionClass} ${isDarkMode ? 'bg-white/20' : 'bg-black/10'} group-hover:h-1.5`} />
-                        
-                        {/* Filled Track */}
+                        <div className="absolute -top-3 -bottom-3 inset-x-0 bg-transparent z-10" />
                         <div 
-                            className={`h-1 rounded-full relative ${transitionClass} ${isDarkMode ? 'bg-white' : 'bg-black'} group-hover:h-1.5`} 
+                            className={`h-full rounded-full relative ${transitionClass} ${isDarkMode ? 'bg-white/40 group-hover:bg-white' : 'bg-black/40 group-hover:bg-black'} ${isDragging ? (isDarkMode ? '!bg-white' : '!bg-black') + ' !opacity-100' : ''}`} 
                             style={{ width: `${progressPercent}%` }}
                         >
-                            {/* Knob (only shows on drag/hover) */}
                             <div 
-                                className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md transition-transform duration-200 ${isDarkMode ? 'bg-white' : 'bg-black'} 
-                                ${isDraggingProgress ? 'scale-100' : 'scale-0 group-hover:scale-100'}`} 
+                                className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-sm transition-all duration-200 ${isDarkMode ? 'bg-white' : 'bg-black'} 
+                                ${isDragging ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-100'}`} 
                             />
                         </div>
                     </div>
@@ -340,42 +300,38 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                     </div>
                 </button>
 
-                {/* Refined Volume Control */}
-                <div className="flex items-center gap-2 w-28 group/vol relative">
+                <div className="flex items-center gap-3 group w-24">
                     <button 
                         onClick={toggleMute}
-                        className={`p-1.5 rounded-md relative flex items-center justify-center ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-90 shrink-0`}
+                        className={`p-1 rounded-md relative flex items-center justify-center ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-90`}
                         title={volume === 0 ? "取消静音" : "静音"}
                     >
                         <div className="relative w-5 h-5">
-                             {volume === 0 ? <VolumeX className="w-5 h-5 opacity-50" /> : (volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />)}
+                             {volume === 0 ? <Volume2 className="w-5 h-5 opacity-50" /> : (volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />)}
+                             <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none" viewBox="0 0 24 24">
+                                <line 
+                                    x1="4" y1="4" x2="20" y2="20" 
+                                    stroke="currentColor" 
+                                    strokeWidth="2.5" 
+                                    strokeLinecap="round"
+                                    className={`transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]`}
+                                    style={{ 
+                                        strokeDasharray: 24, 
+                                        strokeDashoffset: volume === 0 ? 0 : 24, 
+                                        opacity: volume === 0 ? 1 : 0
+                                    }}
+                                />
+                             </svg>
                         </div>
                     </button>
                     
-                    {/* Custom Volume Bar */}
-                    <div 
-                        ref={volumeBarRef}
-                        onPointerDown={handleVolumePointerDown}
-                        className="flex-1 h-8 flex items-center cursor-pointer relative touch-none select-none" // Large Hit Area (h-8)
-                    >
-                         {/* Rail (Background) */}
-                         <div className={`absolute inset-x-0 rounded-full transition-all duration-300 ease-out ${isDarkMode ? 'bg-white/20' : 'bg-black/10'} 
-                             ${isDraggingVolume || 'group-hover/vol:h-1.5'} h-1`} 
-                         />
-                         
-                         {/* Fill (Active) */}
-                         <div 
-                            className={`absolute left-0 rounded-full transition-all duration-300 ease-out ${isDarkMode ? 'bg-white' : 'bg-black'}
-                             ${isDraggingVolume || 'group-hover/vol:h-1.5'} h-1`}
-                            style={{ width: `${volume * 100}%` }}
-                         />
-                         
-                         {/* Knob (Hidden by default, shows on hover/drag - subtle) */}
-                         <div 
-                             className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md pointer-events-none transition-all duration-200 
-                             ${isDraggingVolume ? 'opacity-100 scale-100' : 'opacity-0 scale-50 group-hover/vol:opacity-100 group-hover/vol:scale-100'}`}
-                             style={{ left: `calc(${volume * 100}% - 6px)` }}
-                         />
+                    <div className={`flex-1 h-1 rounded-full relative cursor-pointer ${isDarkMode ? 'bg-neutral-700' : 'bg-black/10'}`}>
+                        <input 
+                            type="range" min="0" max="1" step="0.01" value={volume}
+                            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        />
+                        <div className={`h-full rounded-full ${transitionClass} ${isDarkMode ? 'bg-white' : 'bg-black'}`} style={{ width: `${volume * 100}%` }}></div>
                     </div>
                 </div>
             </div>
