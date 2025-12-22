@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Volume2, Volume1, VolumeX, ListMusic, MessageSquare, Moon, Sun, Monitor, Laptop, Shuffle, ArrowRight } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Volume2, Volume1, VolumeX, ListMusic, MessageSquare, Moon, Sun, Laptop, Shuffle, ArrowRight } from 'lucide-react';
 import { Track } from '../types';
 import { ThemeMode } from '../App';
 
@@ -300,14 +299,14 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                     </div>
                 </button>
 
-                <div className="flex items-center gap-3 group w-24">
+                <div className="flex items-center gap-3 w-32">
                     <button 
                         onClick={toggleMute}
                         className={`p-1 rounded-md relative flex items-center justify-center ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-90`}
                         title={volume === 0 ? "取消静音" : "静音"}
                     >
                         <div className="relative w-5 h-5">
-                             {volume === 0 ? <Volume2 className="w-5 h-5 opacity-50" /> : (volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />)}
+                             {volume === 0 ? <VolumeX className="w-5 h-5 opacity-50" /> : (volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />)}
                              <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none" viewBox="0 0 24 24">
                                 <line 
                                     x1="4" y1="4" x2="20" y2="20" 
@@ -325,13 +324,31 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         </div>
                     </button>
                     
-                    <div className={`flex-1 h-1 rounded-full relative cursor-pointer ${isDarkMode ? 'bg-neutral-700' : 'bg-black/10'}`}>
+                    {/* Volume Slider - Hit Area & Behavior Fix */}
+                    <div className="flex-1 relative h-8 flex items-center group cursor-pointer select-none">
+                        {/* Native Range Input (Top Layer) - Increased Hit Area */}
                         <input 
                             type="range" min="0" max="1" step="0.01" value={volume}
                             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20 m-0 p-0"
+                            title="Volume"
                         />
-                        <div className={`h-full rounded-full ${transitionClass} ${isDarkMode ? 'bg-white' : 'bg-black'}`} style={{ width: `${volume * 100}%` }}></div>
+                        
+                        {/* Visual Track (Background) */}
+                        <div className={`w-full h-1 rounded-full overflow-hidden ${isDarkMode ? 'bg-neutral-700' : 'bg-black/10'}`}>
+                             {/* Filled Part */}
+                             <div className={`h-full ${transitionClass} ${isDarkMode ? 'bg-white' : 'bg-black'}`} style={{ width: `${volume * 100}%` }} />
+                        </div>
+
+                        {/* Visual Thumb (Overlay) - Positioned relative to width */}
+                        <div 
+                             className="absolute left-0 top-0 bottom-0 pointer-events-none"
+                             style={{ width: `${volume * 100}%` }}
+                        >
+                             <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-sm transition-all duration-200 ${isDarkMode ? 'bg-white' : 'bg-black'} 
+                                 translate-x-1/2 opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-100 group-active:scale-125`} 
+                             />
+                        </div>
                     </div>
                 </div>
             </div>
