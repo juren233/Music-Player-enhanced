@@ -153,7 +153,10 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
       : textDimColor;
 
   // Determine Volume Icon
-  const VolumeIcon = volume === 0 ? VolumeX : (volume < 0.5 ? Volume1 : Volume2);
+  // Logic: When muted (0), show the icon that represents the 'last volume' state but with a slash overlay.
+  // This prevents the icon from jumping to a different shape (VolumeX) when muting.
+  const effectiveVolumeForIcon = volume === 0 ? lastVolumeRef.current : volume;
+  const VolumeIconBase = effectiveVolumeForIcon < 0.5 ? Volume1 : Volume2;
 
   return (
     <div className="w-full h-[96px] relative z-50">
@@ -277,10 +280,29 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 <div className="flex items-center gap-3 group w-24">
                     <button 
                         onClick={toggleMute}
-                        className={`p-1 rounded-md relative ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-90`}
+                        className={`p-1 rounded-md relative ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-95`}
                         title={volume === 0 ? "取消静音" : "静音"}
                     >
-                        <VolumeIcon className={`w-5 h-5 transition-transform duration-300 ${volume === 0 ? 'scale-90' : 'scale-100'}`} />
+                        <div className="relative w-5 h-5 flex items-center justify-center">
+                            {/* Base Icon: transitions opacity when muted to look disabled */}
+                            <VolumeIconBase className={`w-full h-full transition-opacity duration-300 ${volume === 0 ? 'opacity-50' : 'opacity-100'}`} />
+                            
+                            {/* Slash Animation: drawn from top-left to bottom-right */}
+                            <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 24 24">
+                                <line 
+                                    x1="3" y1="3" 
+                                    x2="21" y2="21" 
+                                    stroke="currentColor" 
+                                    strokeWidth="2.5" 
+                                    strokeLinecap="round" 
+                                    className="transition-[stroke-dashoffset] duration-300 ease-out"
+                                    style={{
+                                        strokeDasharray: 26, // Length of diagonal (approx)
+                                        strokeDashoffset: volume === 0 ? 0 : 26 // 0 = fully drawn, 26 = hidden
+                                    }}
+                                />
+                            </svg>
+                        </div>
                     </button>
                     
                     <div className={`flex-1 h-1 rounded-full relative cursor-pointer ${isDarkMode ? 'bg-neutral-700' : 'bg-black/10'}`}>

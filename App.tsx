@@ -580,11 +580,6 @@ const App: React.FC = () => {
 
       {backgroundLayer}
 
-      {/* --- Watermark --- */}
-      <div className={`fixed bottom-3 right-4 z-[100] text-[10px] font-mono pointer-events-none select-none tracking-widest ${transitionClass} ${isDarkMode ? 'text-white/50' : 'text-black/30'}`}>
-         v{APP_VERSION}
-      </div>
-
       {/* --- Error Toast --- */}
       {playError && (
           <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 bg-red-500/90 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg flex items-center gap-2 animate-bounce">
