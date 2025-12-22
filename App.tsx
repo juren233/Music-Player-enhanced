@@ -409,7 +409,8 @@ const App: React.FC = () => {
                     const marginClass = line.isContinuation ? "mt-3" : "mt-10";
 
                     const activeBaseColor = isDarkMode ? '#ffffff' : '#000000';
-                    const activeDimColor = isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.1)';
+                    // Make the "unread" part of the active line significantly dimmer for contrast
+                    const activeDimColor = isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)';
 
                     if (isActive) {
                         const progress = currentTime < line.time ? 0 : 
@@ -418,8 +419,13 @@ const App: React.FC = () => {
                         
                         containerClass = "scale-100 blur-0 opacity-100";
                         textClass = "font-extrabold text-3xl lg:text-5xl drop-shadow-sm";
+                        
+                        // Creates a soft 5% gradient edge instead of a hard pixel stop
                         activeStyle = {
-                            backgroundImage: `linear-gradient(to right, ${activeBaseColor} ${progress}%, ${activeDimColor} ${progress}%)`,
+                            backgroundImage: `linear-gradient(90deg, 
+                                ${activeBaseColor} ${Math.max(0, progress - 3)}%, 
+                                ${activeDimColor} ${Math.min(100, progress + 3)}%
+                            )`,
                             WebkitBackgroundClip: 'text',
                             WebkitTextFillColor: 'transparent',
                             backgroundClip: 'text',

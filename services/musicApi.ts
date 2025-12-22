@@ -2,35 +2,58 @@
 import { Track, LyricLine, Comment } from '../types';
 
 // Use a rotating set of public APIs to improve stability
+// Updated list with more reliable Vercel deployments and public instances
 const API_BASES = [
-  'https://netease-cloud-music-api-anon.vercel.app', 
-  'https://netease-cloud-music-api-psi-nine.vercel.app',
+  'https://ncmapi.redd.one', // Often reliable
+  'https://netease-cloud-music-api-anon.vercel.app',
+  'https://netease-cloud-music-api-demo.vercel.app',
+  'https://music.cyrilstudio.top',
+  'https://api-music.imsyy.top',
+  'https://netease-cloud-music-api-gamma-sage.vercel.app',
   'https://music-api.heheda.top',
-  'https://netease.blobs.uk',
-  'https://api.music.areschang.top'
+  'https://ncm.cloud.zlib.cn',
+  'https://netease-cloud-music-api-psi-topaz.vercel.app'
 ];
 
 // Helper to try multiple endpoints
 const fetchWithFailover = async (path: string): Promise<any> => {
+  // Filter out official API if accidentally included (CORS issues in browser)
   const validBases = API_BASES.filter(b => !b.includes('music.163.com/api')); 
+  let lastError: any = null;
 
   for (const base of validBases) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000); 
+      // Increased timeout to 15s to handle slower public instances / cold starts
+      const timeoutId = setTimeout(() => controller.abort(), 15000); 
 
-      const res = await fetch(`${base}${path}`, { 
+      // Add timestamp to prevent caching which can cause stale errors
+      const separator = path.includes('?') ? '&' : '?';
+      const url = `${base}${path}${separator}timestamp=${Date.now()}`;
+
+      const res = await fetch(url, { 
         signal: controller.signal 
       });
       clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      return await res.json();
+      if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+      
+      const data = await res.json();
+      
+      // Check for logical API error (Netease API usually returns 200 with a code field)
+      if (data.code && data.code !== 200) {
+         throw new Error(`API Error Code: ${data.code}`);
+      }
+
+      return data;
     } catch (e) {
+      // console.warn(`API ${base} failed:`, e);
+      lastError = e;
       continue;
     }
   }
-  throw new Error("All API endpoints failed");
+  
+  throw lastError || new Error("All API endpoints failed");
 };
 
 export const fetchPlaylist = async (id: string): Promise<Track[]> => {
@@ -39,12 +62,14 @@ export const fetchPlaylist = async (id: string): Promise<Track[]> => {
     return data.songs || [];
   } catch (e) {
     console.error("Failed to fetch playlist", e);
-    return [];
+    throw e; // Re-throw to let App handle the error state
   }
 };
 
 export const getAudioUrl = async (id: number): Promise<string> => {
-  return `https://music.163.com/song/media/outer/url?id=${id}.mp3&t=${Date.now()}`;
+  // Use standard Netease redirect interface for audio
+  // This is a direct Netease URL (not via API proxy) and typically works well for <audio> tags
+  return `https://music.163.com/song/media/outer/url?id=${id}.mp3`;
 };
 
 const parseLrc = (lrc: string): { time: number; text: string }[] => {
