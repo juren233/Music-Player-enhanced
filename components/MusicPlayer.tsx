@@ -145,7 +145,6 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
   const textDimColor = isDarkMode ? 'text-white/50' : 'text-slate-500';
   const iconHoverClass = isDarkMode ? 'hover:bg-white/10 hover:text-white' : 'hover:bg-black/5 hover:text-black';
   const glassBg = isDarkMode ? 'bg-neutral-900/60 border-white/5' : 'bg-white/70 border-black/5';
-  const playButtonClass = isDarkMode ? 'bg-white text-black shadow-white/10' : 'bg-black text-white shadow-black/20';
 
   // Control Buttons Logic
   const controlBtnClass = `p-2 rounded-lg relative ${transitionClass} ${iconHoverClass} active:scale-95`;
@@ -198,8 +197,8 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
 
             {/* 2. Controls & Progress (Center) */}
             <div className="flex-1 flex flex-col items-center justify-center max-w-[600px]">
-                {/* Buttons */}
-                <div className="flex items-center gap-6 mb-2">
+                {/* Buttons - Redesigned */}
+                <div className="flex items-center gap-8 mb-3">
                     {/* Shuffle Button */}
                     <button 
                         onClick={onToggleShuffle} 
@@ -210,18 +209,35 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         {isShuffle && <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-current opacity-60"></div>}
                     </button>
 
-                    <button onClick={onPrev} className={`${transitionClass} active:scale-95 ${textDimColor} ${isDarkMode ? 'hover:text-white' : 'hover:text-black'}`}>
+                    {/* Prev Button */}
+                    <button 
+                        onClick={onPrev} 
+                        className={`group p-2.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 ${isDarkMode ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-black/60 hover:text-black hover:bg-black/5'}`}
+                    >
                         <SkipBack className="w-7 h-7 fill-current" />
                     </button>
 
+                    {/* Play/Pause Button - Hero Element - Resized from w-16 to w-14 */}
                     <button 
                         onClick={onPlayPause}
-                        className={`w-10 h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 shadow-lg ${transitionClass} ${playButtonClass}`}
+                        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 shadow-xl hover:shadow-2xl ${
+                            isDarkMode 
+                                ? 'bg-white text-black shadow-white/20' 
+                                : 'bg-black text-white shadow-black/30'
+                        }`}
                     >
-                        {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-1" />}
+                         {/* Icon Morph Container */}
+                         <div className="relative w-8 h-8 flex items-center justify-center">
+                             <Pause className={`absolute w-full h-full fill-current transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isPlaying ? 'scale-100 rotate-0 opacity-100' : 'scale-50 -rotate-90 opacity-0'}`} />
+                             <Play className={`absolute w-full h-full fill-current ml-1 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${!isPlaying ? 'scale-100 rotate-0 opacity-100' : 'scale-50 rotate-90 opacity-0'}`} />
+                         </div>
                     </button>
 
-                    <button onClick={onNext} className={`${transitionClass} active:scale-95 ${textDimColor} ${isDarkMode ? 'hover:text-white' : 'hover:text-black'}`}>
+                    {/* Next Button */}
+                    <button 
+                        onClick={onNext} 
+                        className={`group p-2.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 ${isDarkMode ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-black/60 hover:text-black hover:bg-black/5'}`}
+                    >
                         <SkipForward className="w-7 h-7 fill-current" />
                     </button>
 
@@ -231,7 +247,6 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         className={`${controlBtnClass} ${textDimColor}`}
                         title={isReverse ? "倒序播放" : "顺序播放"}
                     >
-                        {/* We use a single ArrowRight icon and rotate it 180deg for reverse, creating a smooth transition */}
                         <div className={`transition-transform duration-500 ease-spring ${isReverse ? 'rotate-180' : 'rotate-0'}`}>
                             <ArrowRight className="w-5 h-5" />
                         </div>
@@ -291,16 +306,8 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         className={`p-1 rounded-md relative flex items-center justify-center ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-90`}
                         title={volume === 0 ? "取消静音" : "静音"}
                     >
-                        {/* 
-                           Mute Animation: 
-                           Instead of swapping icons, we overlay a diagonal line SVG on top of the generic Speaker icon.
-                           When muted (volume === 0), we draw the line. 
-                        */}
                         <div className="relative w-5 h-5">
-                             {/* Base Icon: Show Volume 2 if muted (to be slashed) or Volume 1/2 depending on level */}
                              {volume === 0 ? <Volume2 className="w-5 h-5 opacity-50" /> : (volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />)}
-                             
-                             {/* The Slash Animation */}
                              <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none" viewBox="0 0 24 24">
                                 <line 
                                     x1="4" y1="4" x2="20" y2="20" 
@@ -309,8 +316,8 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                                     strokeLinecap="round"
                                     className={`transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]`}
                                     style={{ 
-                                        strokeDasharray: 24, // approx diagonal length
-                                        strokeDashoffset: volume === 0 ? 0 : 24, // 0 = fully drawn, 24 = hidden
+                                        strokeDasharray: 24, 
+                                        strokeDashoffset: volume === 0 ? 0 : 24, 
                                         opacity: volume === 0 ? 1 : 0
                                     }}
                                 />
