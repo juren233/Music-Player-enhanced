@@ -10,6 +10,16 @@ const DEFAULT_PLAYLIST_ID = '833444858';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 
+// Helper to adjust color vibrancy
+const adjustColor = (r: number, g: number, b: number, saturationBoost: number = 1.2) => {
+  // Convert RGB to HSL logic roughly to boost saturation if needed, 
+  // or simply ensure the color isn't too dark/washed out.
+  // For simplicity and performance in JS, we'll keep RGB but clamp minimum brightness.
+  const max = Math.max(r, g, b);
+  if (max < 30) return { r: r + 20, g: g + 20, b: b + 20 }; // Too dark
+  return { r, g, b };
+};
+
 const App: React.FC = () => {
   // Data State
   const [playlistId, setPlaylistId] = useState(DEFAULT_PLAYLIST_ID);
@@ -48,7 +58,14 @@ const App: React.FC = () => {
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [isRefreshingComments, setIsRefreshingComments] = useState(false);
+  
+  // Visual Engine State
   const [dominantColor, setDominantColor] = useState('20, 20, 20');
+  const [bgPalette, setBgPalette] = useState<{c1: string, c2: string, c3: string}>({
+      c1: 'rgba(50,50,50,0.8)',
+      c2: 'rgba(30,30,30,0.8)',
+      c3: 'rgba(20,20,20,0.8)'
+  });
   
   // UI Toggles
   const [showQueue, setShowQueue] = useState(false);
@@ -219,6 +236,7 @@ const App: React.FC = () => {
             if (isMounted && loadingTrackRef.current === currentTrack.id) setComments(data);
         }).catch(() => {});
 
+        // Color Extraction Logic
         const img = new Image();
         img.crossOrigin = "Anonymous";
         img.src = currentTrack.al.picUrl;
@@ -229,8 +247,20 @@ const App: React.FC = () => {
             const ctx = canvas.getContext('2d');
             if(ctx) {
                 ctx.drawImage(img, 0, 0, 1, 1);
-                const [r,g,b] = ctx.getImageData(0,0,1,1).data;
+                const [rawR, rawG, rawB] = ctx.getImageData(0,0,1,1).data;
+                const { r, g, b } = adjustColor(rawR, rawG, rawB);
+
                 setDominantColor(`${r},${g},${b}`);
+
+                // Generate a pseudo-palette by shifting hue/lightness roughly
+                // This creates that rich "Apple Music" multi-tone gradient look
+                setBgPalette({
+                    c1: `rgb(${r}, ${g}, ${b})`,
+                    // Shift 2: Slightly lighter/different hue simulation
+                    c2: `rgb(${Math.min(255, r * 1.2)}, ${Math.min(255, g * 0.8)}, ${Math.min(255, b * 1.1)})`,
+                    // Shift 3: Darker/complementary simulation
+                    c3: `rgb(${Math.max(0, r * 0.8)}, ${Math.max(0, g * 1.1)}, ${Math.max(0, b * 0.9)})`
+                });
             }
         }
     };
@@ -475,37 +505,49 @@ const App: React.FC = () => {
       }, 2500); // Resume auto-scroll after delay
   };
 
-  // --- Background & Styles ---
+  // --- Apple Music Style Fluid Background ---
   const backgroundLayer = useMemo(() => (
     <>
-      <div className="fixed inset-0 -z-50 bg-[#050505]">
-          <div className="absolute inset-0 overflow-hidden pointer-events-none transform-gpu">
-              <div className="absolute inset-0 opacity-20 transition-colors duration-[2000ms]" style={{ background: `rgb(${dominantColor})` }} />
-              <div 
-                 className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] rounded-full filter blur-[100px] animate-spin-slow mix-blend-screen opacity-40 transition-colors duration-[3000ms]"
-                 style={{ background: `radial-gradient(circle at 50% 50%, rgb(${dominantColor}), transparent 60%)`, animationDuration: '45s' }}
-              />
-              <div 
-                 className="absolute -bottom-[50%] -right-[50%] w-[200%] h-[200%] rounded-full filter blur-[100px] animate-spin-slow mix-blend-screen opacity-40 transition-colors duration-[3000ms]"
-                 style={{ background: `radial-gradient(circle at 50% 50%, rgb(${dominantColor}), transparent 60%)`, animationDirection: 'reverse', animationDuration: '35s' }}
-              />
-          </div>
-          <div className="absolute inset-0 bg-black/60" /> 
-      </div>
+      <div className="fixed inset-0 -z-50 bg-[#050505] overflow-hidden">
+         {/* Base dark layer to ensure text contrast */}
+         <div className="absolute inset-0 bg-black/40 z-0" />
+         
+         {/* Animated Blob Container - Transitions colors smoothly */}
+         <div className="absolute inset-0 transition-opacity duration-[1500ms]" style={{ opacity: isDarkMode ? 0.6 : 0.8 }}>
+             
+             {/* Blob 1: Top Left - Primary Dominant */}
+             <div 
+                 className="absolute top-[-10%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[80px] md:blur-[120px] animate-blob opacity-70 transition-colors duration-[2000ms]"
+                 style={{ backgroundColor: bgPalette.c1 }}
+             />
+             
+             {/* Blob 2: Top Right/Center - Secondary (Hue Shift) */}
+             <div 
+                 className="absolute top-[10%] right-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[80px] md:blur-[120px] animate-blob animation-delay-2000 opacity-60 transition-colors duration-[2000ms]"
+                 style={{ backgroundColor: bgPalette.c2 }}
+             />
+             
+             {/* Blob 3: Bottom Left - Tertiary */}
+             <div 
+                 className="absolute -bottom-[20%] -left-[20%] w-[80vw] h-[80vw] rounded-full mix-blend-screen filter blur-[80px] md:blur-[120px] animate-blob animation-delay-4000 opacity-60 transition-colors duration-[2000ms]"
+                 style={{ backgroundColor: bgPalette.c3 }}
+             />
 
-      <div className={`fixed inset-0 -z-40 transition-opacity duration-500 ease-[cubic-bezier(0.2,0,0,1)] ${isDarkMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          <div className="absolute inset-0 bg-[#f5f5f7]" /> 
-          <div className="absolute inset-0 overflow-hidden pointer-events-none transform-gpu">
-              <div className="absolute inset-0 opacity-10 transition-colors duration-[2000ms]" style={{ background: `rgb(${dominantColor})` }} />
+              {/* Blob 4: Rotating accent for movement */}
               <div 
-                 className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] rounded-full filter blur-[120px] animate-spin-slow mix-blend-multiply opacity-15 transition-colors duration-[3000ms]"
-                 style={{ background: `radial-gradient(circle at 50% 50%, rgb(${dominantColor}), transparent 70%)`, animationDuration: '50s' }}
-              />
-          </div>
-          <div className="absolute inset-0 bg-white/40" />
+                 className="absolute top-[20%] left-[20%] w-[50vw] h-[50vw] rounded-full mix-blend-overlay filter blur-[60px] md:blur-[100px] animate-rotate-scale opacity-40 transition-colors duration-[2000ms]"
+                 style={{ backgroundColor: bgPalette.c1 }}
+             />
+         </div>
+
+         {/* Noise Texture Overlay (Optional for that gritty Apple look) */}
+         <div className="absolute inset-0 opacity-[0.03] pointer-events-none z-10" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}></div>
+         
+         {/* Glass Overlay for Light Mode */}
+         {!isDarkMode && <div className="absolute inset-0 bg-white/30 backdrop-blur-[100px] z-10 mix-blend-overlay" />}
       </div>
     </>
-  ), [dominantColor, isDarkMode]);
+  ), [bgPalette, isDarkMode]);
 
   const transitionClass = "transition-[color,background-color,border-color,opacity,shadow,transform,filter] duration-500 ease-[cubic-bezier(0.2,0,0,1)]";
   const textColor = isDarkMode ? 'text-white' : 'text-slate-900';
