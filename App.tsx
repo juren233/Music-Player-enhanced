@@ -551,44 +551,51 @@ const App: React.FC = () => {
 
   // --- Optimization: Memoize Comments Drawer ---
   const commentsDrawer = useMemo(() => (
-      <div className={`fixed inset-y-0 right-0 w-full sm:w-[450px] backdrop-blur-3xl border-l shadow-2xl z-40 transform transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${showComments ? 'translate-x-0' : 'translate-x-full'} ${drawerBg} ${drawerBorder} ${textColor} ${transitionClass}`}>
-            <div className="flex flex-col h-full">
-                <div className={`p-6 pt-8 border-b flex items-center justify-between ${transitionClass} ${isDarkMode ? 'border-white/5' : 'border-black/5'}`}>
-                    <h2 className="text-lg font-bold flex items-center gap-2"><MessageSquare className="w-5 h-5" /> 精选评论</h2>
-                    <div className="flex items-center gap-2">
-                        <button 
-                            onClick={handleRefreshComments} 
-                            className={`p-2 rounded-full ${transitionClass} ${isDarkMode ? 'bg-white/5 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}
-                            title="刷新评论"
-                        >
-                            <RefreshCw className={`w-4 h-4 ${isRefreshingComments ? 'animate-spin' : ''}`} />
-                        </button>
-                        <button onClick={() => setShowComments(false)} className={`p-2 rounded-full ${transitionClass} ${isDarkMode ? 'bg-white/5 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    {comments.length > 0 ? comments.map(c => (
-                        <div key={c.commentId} className="flex gap-4 group">
-                            <img src={c.user.avatarUrl} loading="lazy" className={`w-10 h-10 rounded-full border shadow-sm ${transitionClass} ${isDarkMode ? 'border-white/10' : 'border-black/10'}`} />
-                            <div className="flex-1">
-                                <div className="flex justify-between items-baseline mb-1">
-                                    <span className="text-sm font-semibold opacity-90">{c.user.nickname}</span>
-                                    <span className="text-xs opacity-30">{new Date(c.time).toLocaleDateString()}</span>
-                                </div>
-                                <p className="text-base opacity-90 leading-relaxed font-normal">{c.content}</p>
-                                <div className="flex items-center gap-1 mt-2 text-xs opacity-30 group-hover:opacity-50 transition-opacity">
-                                    <Heart className="w-3 h-3" /> {c.likedCount}
-                                </div>
-                            </div>
-                        </div>
-                    )) : (
-                        <div className="text-center opacity-30 mt-20">暂无评论</div>
-                    )}
-                </div>
-            </div>
-      </div>
+      <>
+          {/* Backdrop for closing comments */}
+          <div 
+              className={`fixed inset-0 z-30 bg-black/5 backdrop-blur-[1px] transition-opacity duration-500 ${showComments ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+              onClick={() => setShowComments(false)}
+          />
+          <div className={`fixed inset-y-0 right-0 w-full sm:w-[450px] backdrop-blur-3xl border-l shadow-2xl z-40 transform transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${showComments ? 'translate-x-0' : 'translate-x-full'} ${drawerBg} ${drawerBorder} ${textColor} ${transitionClass}`}>
+              <div className="flex flex-col h-full">
+                  <div className={`p-6 pt-8 border-b flex items-center justify-between ${transitionClass} ${isDarkMode ? 'border-white/5' : 'border-black/5'}`}>
+                      <h2 className="text-lg font-bold flex items-center gap-2"><MessageSquare className="w-5 h-5" /> 精选评论</h2>
+                      <div className="flex items-center gap-2">
+                          <button 
+                              onClick={handleRefreshComments} 
+                              className={`p-2 rounded-full ${transitionClass} ${isDarkMode ? 'bg-white/5 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}
+                              title="刷新评论"
+                          >
+                              <RefreshCw className={`w-4 h-4 ${isRefreshingComments ? 'animate-spin' : ''}`} />
+                          </button>
+                          <button onClick={() => setShowComments(false)} className={`p-2 rounded-full ${transitionClass} ${isDarkMode ? 'bg-white/5 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
+                              <X className="w-4 h-4" />
+                          </button>
+                      </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                      {comments.length > 0 ? comments.map(c => (
+                          <div key={c.commentId} className="flex gap-4 group">
+                              <img src={c.user.avatarUrl} loading="lazy" className={`w-10 h-10 rounded-full border shadow-sm ${transitionClass} ${isDarkMode ? 'border-white/10' : 'border-black/10'}`} />
+                              <div className="flex-1">
+                                  <div className="flex justify-between items-baseline mb-1">
+                                      <span className="text-sm font-semibold opacity-90">{c.user.nickname}</span>
+                                      <span className="text-xs opacity-30">{new Date(c.time).toLocaleDateString()}</span>
+                                  </div>
+                                  <p className="text-base opacity-90 leading-relaxed font-normal">{c.content}</p>
+                                  <div className="flex items-center gap-1 mt-2 text-xs opacity-30 group-hover:opacity-50 transition-opacity">
+                                      <Heart className="w-3 h-3" /> {c.likedCount}
+                                  </div>
+                              </div>
+                          </div>
+                      )) : (
+                          <div className="text-center opacity-30 mt-20">暂无评论</div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      </>
   ), [showComments, comments, isDarkMode, drawerBg, drawerBorder, textColor, isRefreshingComments, handleRefreshComments]);
 
   // --- Optimization: Album Art Component (Prevent Re-render) ---
