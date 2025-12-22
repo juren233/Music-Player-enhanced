@@ -36,6 +36,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
   
   const [animatingTheme, setAnimatingTheme] = useState(false);
   const [animatingReverse, setAnimatingReverse] = useState(false);
+  const [animatingShuffle, setAnimatingShuffle] = useState(false); // Added state for shuffle animation
   const [animatingComments, setAnimatingComments] = useState(false);
   
   // Dragging State
@@ -66,6 +67,13 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
     const timer = setTimeout(() => setAnimatingReverse(false), 400);
     return () => clearTimeout(timer);
   }, [isReverse]);
+
+  // Trigger animation on shuffle toggle
+  useEffect(() => {
+    setAnimatingShuffle(true);
+    const timer = setTimeout(() => setAnimatingShuffle(false), 500);
+    return () => clearTimeout(timer);
+  }, [isShuffle]);
 
   const handleCommentsClick = () => {
     setAnimatingComments(true);
@@ -202,14 +210,17 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
             <div className="flex-1 flex flex-col items-center justify-center max-w-[600px]">
                 {/* Buttons - Redesigned */}
                 <div className="flex items-center gap-8 mb-3">
-                    {/* Shuffle Button */}
+                    {/* Shuffle Button - With refined animation */}
                     <button 
                         onClick={onToggleShuffle} 
                         className={`${controlBtnClass} ${shuffleActiveClass}`}
                         title={isShuffle ? "关闭随机" : "开启随机"}
                     >
-                        <Shuffle className="w-4 h-4" />
-                        {isShuffle && <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-current opacity-60"></div>}
+                        <div className={`relative transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isShuffle ? 'rotate-180' : 'rotate-0'}`}>
+                            <Shuffle className={`w-4 h-4 transition-transform duration-300 ${animatingShuffle ? 'scale-125' : 'scale-100'}`} />
+                        </div>
+                        {/* Animated Dot Indicator */}
+                        <div className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-current transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isShuffle ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-0 translate-y-2'}`}></div>
                     </button>
 
                     {/* Prev Button */}

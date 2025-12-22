@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { fetchPlaylist, getAudioUrl, fetchLyrics, fetchComments, fetchRecommendedPlaylists, searchPlaylists, searchSongs, searchArtists, fetchArtistSongsList, fetchArtistDetail } from './services/musicApi';
 import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from './types';
@@ -286,11 +285,23 @@ const App: React.FC = () => {
       loadArtistData(artistId, 'hot');
   };
 
-  // Sort toggle handler
-  const handleArtistSortChange = (order: 'hot' | 'time') => {
+  // Sort toggle handler - Optimized to only fetch songs
+  const handleArtistSortChange = async (order: 'hot' | 'time') => {
       if (!selectedArtistId) return;
       if (order === artistSortOrder) return; // No change
-      loadArtistData(selectedArtistId, order);
+      
+      setArtistSortOrder(order);
+      setIsArtistLoading(true); // Reuse loading state for list part
+      
+      try {
+          // Only fetch songs, keep detail
+          const songs = await fetchArtistSongsList(selectedArtistId, order);
+          setArtistSongs(songs);
+      } catch (e) {
+          console.error("Failed to switch sort order", e);
+      } finally {
+          setIsArtistLoading(false);
+      }
   };
 
   // Play from Artist List
@@ -704,6 +715,12 @@ const App: React.FC = () => {
         emptySearch = false;
     }
 
+    // Adjusted skeleton logic: 
+    // Show skeleton if:
+    // 1. Search is loading
+    // 2. Artist (initial full load) is loading
+    // 3. Artist list (sort switch) is loading [implied by isArtistLoading being true but we handle header separately]
+    // 4. Recommend list is empty
     const showSkeleton = (isSearchLoading || isArtistLoading) || (viewTab === 'recommend' && !isSearching && recommendations.length === 0);
 
     return (
@@ -819,9 +836,9 @@ const App: React.FC = () => {
                   {viewTab === 'artist' ? (
                        // Artist Detail View
                        <div className="max-w-5xl mx-auto space-y-8 pb-20">
-                           {/* Artist Header */}
-                           {!isArtistLoading && artistDetail && (
-                               <div className="flex flex-col md:flex-row items-center md:items-end gap-6 md:gap-8 pb-4 border-b border-white/5">
+                           {/* Artist Header - Persistent even during list loading if detail exists */}
+                           {artistDetail && (
+                               <div className="flex flex-col md:flex-row items-center md:items-end gap-6 md:gap-8 pb-4 border-b border-white/5 animate-fade-in">
                                    <div className="w-32 h-32 md:w-48 md:h-48 rounded-full overflow-hidden shadow-2xl border-4 border-white/5 shrink-0">
                                        <img src={artistDetail.picUrl || artistDetail.cover} className="w-full h-full object-cover" />
                                    </div>
@@ -830,16 +847,25 @@ const App: React.FC = () => {
                                        <p className="text-white/40 text-sm max-w-2xl line-clamp-2 md:line-clamp-3 mb-4">{artistDetail.briefDesc || '暂无简介'}</p>
                                        
                                        <div className="flex items-center justify-center md:justify-start gap-4">
-                                           <div className="flex bg-white/5 rounded-lg p-1">
+                                            {/* Sliding Pill Switcher for Artist Sort */}
+                                           <div className="relative flex bg-white/5 rounded-lg p-1 isolate">
+                                                {/* Animated Background Pill */}
+                                                <div 
+                                                    className="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] bg-white/10 border border-white/5 shadow-lg rounded-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] -z-10"
+                                                    style={{
+                                                        transform: artistSortOrder === 'time' ? 'translateX(100%)' : 'translateX(0%)'
+                                                    }}
+                                                />
+
                                                 <button 
                                                     onClick={() => handleArtistSortChange('hot')}
-                                                    className={`px-4 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${artistSortOrder === 'hot' ? 'bg-white/20 text-white shadow-lg' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+                                                    className={`w-28 px-4 py-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-colors duration-300 ${artistSortOrder === 'hot' ? 'text-white' : 'text-white/40 hover:text-white/60'}`}
                                                 >
                                                     <Flame className="w-3 h-3" /> 最热歌曲
                                                 </button>
                                                 <button 
                                                     onClick={() => handleArtistSortChange('time')}
-                                                    className={`px-4 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${artistSortOrder === 'time' ? 'bg-white/20 text-white shadow-lg' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+                                                    className={`w-28 px-4 py-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-colors duration-300 ${artistSortOrder === 'time' ? 'text-white' : 'text-white/40 hover:text-white/60'}`}
                                                 >
                                                     <Calendar className="w-3 h-3" /> 最新发布
                                                 </button>
@@ -849,12 +875,13 @@ const App: React.FC = () => {
                                </div>
                            )}
 
-                           {/* Artist Song List */}
+                           {/* Artist Song List - Shows skeleton only when loading songs */}
                            <div className="space-y-1">
                                 {isArtistLoading ? (
-                                     <div className="flex flex-col gap-4">
-                                        {Array(5).fill(0).map((_, i) => (
-                                            <div key={i} className="h-14 bg-white/10 rounded-lg" />
+                                     <div className="flex flex-col gap-4 animate-pulse">
+                                        {!artistDetail && <div className="h-48 w-full bg-white/5 rounded-2xl mb-8"></div>} {/* Only show header skeleton if no detail yet */}
+                                        {Array(8).fill(0).map((_, i) => (
+                                            <div key={i} className="h-14 bg-white/5 rounded-lg w-full" />
                                         ))}
                                      </div>
                                 ) : artistSongs.length > 0 ? (
@@ -862,7 +889,8 @@ const App: React.FC = () => {
                                         <div 
                                             key={track.id} 
                                             onClick={() => handleArtistSongClick(track)}
-                                            className="flex items-center gap-4 p-3 rounded-lg cursor-pointer group transition-all duration-300 hover:bg-white/5 text-white/60 hover:text-white"
+                                            className="flex items-center gap-4 p-3 rounded-lg cursor-pointer group transition-all duration-300 hover:bg-white/5 text-white/60 hover:text-white animate-fade-in-up"
+                                            style={{ animationDelay: `${i * 30}ms` }}
                                         >
                                             <div className="w-8 text-center text-sm font-mono opacity-30">{i + 1}</div>
                                             <div className="relative w-10 h-10 shrink-0">
@@ -889,7 +917,7 @@ const App: React.FC = () => {
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="text-center py-20 opacity-40">该筛选下暂无歌曲</div>
+                                    !isArtistLoading && <div className="text-center py-20 opacity-40">该筛选下暂无歌曲</div>
                                 )}
                            </div>
                        </div>
@@ -914,8 +942,8 @@ const App: React.FC = () => {
                                         {showSkeleton ? (
                                             Array(10).fill(0).map((_, i) => (
                                                 <div key={i} className="flex flex-col gap-3">
-                                                    <div className="aspect-square rounded-xl bg-white/10" />
-                                                    <div className="h-4 bg-white/10 rounded w-3/4" />
+                                                    <div className="aspect-square rounded-xl bg-white/10 animate-pulse" />
+                                                    <div className="h-4 bg-white/10 rounded w-3/4 animate-pulse" />
                                                 </div>
                                             ))
                                         ) : (

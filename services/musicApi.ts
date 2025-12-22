@@ -116,10 +116,22 @@ const fetchWithFailover = async (path: string): Promise<any> => {
   }
 };
 
+// 统一处理歌曲数据格式，解决不同 API 返回结构不一致问题
+const normalizeTrack = (s: any): Track => {
+  return {
+    id: s.id,
+    name: s.name,
+    ar: s.ar || s.artists || [],
+    al: s.al || s.album || { id: 0, name: 'Unknown Album', picUrl: '' },
+    dt: s.dt || s.duration || 0,
+    fee: s.fee
+  };
+};
+
 export const fetchPlaylist = async (id: string): Promise<Track[]> => {
   try {
     const data = await fetchWithFailover(`/playlist/track/all?id=${id}&limit=200&offset=0`);
-    return data.songs || [];
+    return (data.songs || []).map(normalizeTrack);
   } catch (e) {
     console.error("Failed to fetch playlist", e);
     throw e;
@@ -156,15 +168,7 @@ export const searchSongs = async (keywords: string): Promise<Track[]> => {
   try {
     const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1&limit=30`);
     const songs = data.result?.songs || [];
-
-    return songs.map((s: any) => ({
-      id: s.id,
-      name: s.name,
-      ar: s.ar || s.artists || [], 
-      al: s.al || s.album || { picUrl: '' },
-      dt: s.dt || s.duration || 0,
-      fee: s.fee 
-    }));
+    return songs.map(normalizeTrack);
   } catch (e) {
     return [];
   }
@@ -188,7 +192,7 @@ export const searchArtists = async (keywords: string): Promise<Artist[]> => {
 export const fetchArtistTopSongs = async (artistId: number): Promise<Track[]> => {
   try {
     const data = await fetchWithFailover(`/artist/top/song?id=${artistId}`);
-    return data.songs || [];
+    return (data.songs || []).map(normalizeTrack);
   } catch (e) {
     throw e;
   }
@@ -206,7 +210,7 @@ export const fetchArtistDetail = async (artistId: number): Promise<any> => {
 export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'time', limit = 100): Promise<Track[]> => {
     try {
         const data = await fetchWithFailover(`/artist/songs?id=${artistId}&order=${order}&limit=${limit}`);
-        return data.songs || [];
+        return (data.songs || []).map(normalizeTrack);
     } catch (e) {
         if (order === 'hot') {
             return fetchArtistTopSongs(artistId);
