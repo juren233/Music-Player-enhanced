@@ -151,7 +151,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
       ? (isDarkMode ? 'bg-white/10 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]' : 'bg-black/10 text-black shadow-[0_0_10px_rgba(0,0,0,0.1)]') 
       : textDimColor;
       
-  // Active Color (Brand Red/Rose)
+  // Active Color (Brand Red/Rose) for PROGRESS BAR ONLY
   const activeBarColor = 'bg-rose-500';
   const activeShadow = 'shadow-[0_0_10px_rgba(244,63,94,0.6)]'; // rose-500 glow
 
@@ -256,7 +256,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                     </button>
                 </div>
                 
-                {/* Scrubber */}
+                {/* Scrubber - USES BRAND COLOR (RED) */}
                 <div className={`w-full flex items-center gap-3 text-[10px] font-medium tracking-wide ${transitionClass} ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>
                     <span className="w-8 text-right tabular-nums">{formatTime(effectiveTime)}</span>
                     <div 
@@ -335,7 +335,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         </div>
                     </button>
                     
-                    {/* Volume Slider - Consistent with Progress Bar */}
+                    {/* Volume Slider - USES ORIGINAL MONOCHROME */}
                     <div className="flex-1 relative h-8 flex items-center group cursor-pointer select-none">
                         {/* Native Range Input (Top Layer) - Hit Area */}
                         <input 
@@ -347,8 +347,8 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                         
                         {/* Background Track */}
                         <div className={`w-full h-1 rounded-full overflow-hidden relative ${transitionClass} ${isDarkMode ? 'bg-white/10' : 'bg-black/5'}`}>
-                             {/* Filled Part - BRAND COLOR */}
-                             <div className={`h-full ${transitionClass} ${activeBarColor}`} style={{ width: `${volume * 100}%` }} />
+                             {/* Filled Part - ORIGINAL COLORS */}
+                             <div className={`h-full ${transitionClass} ${isDarkMode ? 'bg-white' : 'bg-black'}`} style={{ width: `${volume * 100}%` }} />
                         </div>
 
                         {/* Visual Thumb */}
@@ -356,7 +356,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
                              className="absolute left-0 top-0 bottom-0 pointer-events-none"
                              style={{ width: `${volume * 100}%` }}
                         >
-                             <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md transition-all duration-200 bg-white
+                             <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md transition-all duration-200 ${isDarkMode ? 'bg-white' : 'bg-black'}
                                  translate-x-1/2 opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-100 group-active:scale-125`} 
                              />
                         </div>
