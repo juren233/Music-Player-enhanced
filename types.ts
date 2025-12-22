@@ -2,6 +2,8 @@
 export interface Artist {
   id: number;
   name: string;
+  picUrl?: string; // Optional because sometimes it's missing in track details but present in search
+  img1v1Url?: string;
 }
 
 export interface Album {

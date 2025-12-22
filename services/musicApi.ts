@@ -1,5 +1,5 @@
 
-import { Track, LyricLine, Comment, RecommendedPlaylist } from '../types';
+import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from '../types';
 
 // Use a rotating set of public APIs to improve stability
 // Updated list with more reliable Vercel deployments and public instances
@@ -94,6 +94,54 @@ export const searchPlaylists = async (keywords: string): Promise<RecommendedPlay
   } catch (e) {
     console.warn("Failed to search playlists", e);
     return [];
+  }
+};
+
+export const searchSongs = async (keywords: string): Promise<Track[]> => {
+  try {
+    // type 1 = songs
+    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1&limit=30`);
+    const songs = data.result?.songs || [];
+
+    // Map search result song format to standard Track format
+    // Note: Search results often differ slightly in structure (e.g., 'ar' vs 'artists', 'al' vs 'album')
+    return songs.map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      ar: s.ar || s.artists || [], // Handle potential API inconsistencies
+      al: s.al || s.album || { picUrl: '' },
+      dt: s.dt || s.duration || 0
+    }));
+  } catch (e) {
+    console.warn("Failed to search songs", e);
+    return [];
+  }
+};
+
+export const searchArtists = async (keywords: string): Promise<Artist[]> => {
+  try {
+    // type 100 = artists
+    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=100&limit=30`);
+    const artists = data.result?.artists || [];
+
+    return artists.map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      picUrl: a.picUrl || a.img1v1Url
+    }));
+  } catch (e) {
+    console.warn("Failed to search artists", e);
+    return [];
+  }
+};
+
+export const fetchArtistSongs = async (artistId: number): Promise<Track[]> => {
+  try {
+    const data = await fetchWithFailover(`/artist/top/song?id=${artistId}`);
+    return data.songs || [];
+  } catch (e) {
+    console.error("Failed to fetch artist songs", e);
+    throw e;
   }
 };
 
