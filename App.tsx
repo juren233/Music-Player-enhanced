@@ -4,7 +4,7 @@ import { fetchPlaylist, getAudioUrl, fetchLyrics, fetchComments } from './servic
 import { Track, LyricLine, Comment } from './types';
 import { MusicPlayer } from './components/MusicPlayer';
 import { APP_VERSION, DEFAULT_VOLUME } from './constants';
-import { MessageSquare, ListMusic, Loader2, Heart, X, Search, Disc, AlertCircle, RefreshCw } from 'lucide-react';
+import { MessageSquare, ListMusic, Loader2, Heart, X, Search, Disc, AlertCircle, RefreshCw, LocateFixed } from 'lucide-react';
 
 const DEFAULT_PLAYLIST_ID = '833444858'; 
 
@@ -52,6 +52,11 @@ const App: React.FC = () => {
     return (localStorage.getItem('vinyl_theme') as ThemeMode) || 'system';
   });
   const [isDarkMode, setIsDarkMode] = useState(true);
+
+  // Scroll & Lyrics State
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const isAutoScrolling = useRef(false);
+  const userScrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Error handling
   const [consecutiveErrors, setConsecutiveErrors] = useState(0);
@@ -150,6 +155,10 @@ const App: React.FC = () => {
     let isMounted = true;
     loadingTrackRef.current = currentTrack.id;
 
+    // Reset States on track change
+    setIsUserScrolling(false);
+    if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+
     const loadTrack = async () => {
         setLyrics([]);
         setComments([]);
@@ -175,7 +184,11 @@ const App: React.FC = () => {
         }
 
         fetchLyrics(currentTrack.id).then(data => {
-            if (isMounted && loadingTrackRef.current === currentTrack.id) setLyrics(data);
+            if (isMounted && loadingTrackRef.current === currentTrack.id) {
+                setLyrics(data);
+                // Wait for render then init styles
+                requestAnimationFrame(() => updateLyricVisuals());
+            }
         }).catch(() => {});
         
         fetchComments(currentTrack.id).then(data => {
@@ -337,17 +350,108 @@ const App: React.FC = () => {
       localStorage.setItem('vinyl_volume', volume.toString());
   }, [volume]);
 
-  // --- Auto-Scroll Lyrics ---
-  const activeIndex = lyrics.findIndex((l, i) => l.time <= currentTime && (i === lyrics.length - 1 || lyrics[i+1].time > currentTime));
+  // --- Real-time Visual Engine for Lyrics (Depth of Field Effect) ---
+  const updateLyricVisuals = useCallback(() => {
+    if (!lyricsContainerRef.current) return;
+    
+    const container = lyricsContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const containerCenter = containerRect.top + containerRect.height / 2;
+    const children = container.children;
+    const maxDistance = containerRect.height / 2.5; // Controls the "focus area" height
 
+    for (let i = 0; i < children.length; i++) {
+        const child = children[i] as HTMLElement;
+        const rect = child.getBoundingClientRect();
+        const childCenter = rect.top + rect.height / 2;
+        const distance = Math.abs(containerCenter - childCenter);
+        
+        let intensity = Math.min(distance / maxDistance, 1);
+        // Non-linear ease for smoother focus area
+        intensity = 1 - Math.pow(1 - intensity, 1.5);
+
+        // Parameters
+        const scale = 1 - (intensity * 0.15); // 1.0 -> 0.85
+        const blur = intensity * 4; // 0px -> 4px
+        const opacity = 1 - (intensity * 0.7); // 1.0 -> 0.3
+
+        child.style.transform = `scale(${scale})`;
+        child.style.filter = `blur(${blur}px)`;
+        child.style.opacity = `${opacity}`;
+    }
+  }, []);
+
+  // Ensure visuals persist after React renders overwrites
   useEffect(() => {
+      requestAnimationFrame(updateLyricVisuals);
+  });
+
+  // --- Handle Scroll Events ---
+  const handleLyricsScroll = () => {
+      // 1. Update visuals immediately based on new position
+      requestAnimationFrame(updateLyricVisuals);
+
+      // 2. Logic to detect user interaction vs auto-scroll
+      if (isAutoScrolling.current) {
+          isAutoScrolling.current = false; // Reset flag after the auto-scroll event fires
+          return;
+      }
+
+      // If we are here, it means the USER triggered the scroll event (or inertia)
+      if (!isUserScrolling) {
+          setIsUserScrolling(true);
+      }
+
+      // 3. Debounce auto-return
+      if (userScrollTimeout.current) {
+          clearTimeout(userScrollTimeout.current);
+      }
+      
+      // Set a generous 3s timeout before returning to auto-scroll
+      userScrollTimeout.current = setTimeout(() => {
+          setIsUserScrolling(false);
+      }, 3000);
+  };
+
+  // --- Back to Focus Button Action ---
+  const scrollToCurrentLyric = () => {
+      if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+      setIsUserScrolling(false);
+      
       if (lyricsContainerRef.current && activeIndex !== -1) {
           const el = lyricsContainerRef.current.children[activeIndex] as HTMLElement;
           if (el) {
+              isAutoScrolling.current = true; // Set flag to ignore the scroll event triggered by this
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              // Force visual updates during scroll
+              setTimeout(updateLyricVisuals, 100); 
+              setTimeout(updateLyricVisuals, 300); 
+              setTimeout(updateLyricVisuals, 500); 
+          }
+      }
+  };
+
+  // --- Auto-Scroll Trigger ---
+  const activeIndex = lyrics.findIndex((l, i) => l.time <= currentTime && (i === lyrics.length - 1 || lyrics[i+1].time > currentTime));
+
+  useEffect(() => {
+      // Only auto-scroll if user hasn't taken control
+      if (!isUserScrolling && lyricsContainerRef.current && activeIndex !== -1) {
+          const el = lyricsContainerRef.current.children[activeIndex] as HTMLElement;
+          if (el) {
+              isAutoScrolling.current = true;
               el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
       }
-  }, [activeIndex]);
+  }, [activeIndex, isUserScrolling]);
+
+  // --- Resize Observer to update visuals when window resizes ---
+  useEffect(() => {
+      const handleResize = () => requestAnimationFrame(updateLyricVisuals);
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+  }, [updateLyricVisuals]);
+
 
   // --- Optimization: Memoize Background Layers ---
   const backgroundLayer = useMemo(() => (
@@ -593,33 +697,18 @@ const App: React.FC = () => {
         {AlbumArt}
 
         {/* Lyrics - Kept in main render because it needs high frequency updates */}
-        <div className="flex-1 h-full relative overflow-hidden lg:mr-8 flex flex-col min-h-0">
+        <div className="flex-1 h-full relative overflow-hidden lg:mr-8 flex flex-col min-h-0 group/lyrics">
             <div 
                 ref={lyricsContainerRef}
-                className="flex-1 overflow-y-auto no-scrollbar py-[50vh] px-8 lg:px-4 text-left lyric-mask"
+                onScroll={handleLyricsScroll}
+                className="flex-1 overflow-y-auto no-scrollbar py-[50vh] px-8 lg:px-4 text-left lyric-mask transform-gpu"
             >
                 {lyrics.length > 0 ? lyrics.map((line, i) => {
                     const isActive = i === activeIndex;
-                    const distance = Math.abs(activeIndex - i);
                     
-                    let containerClass = "";
-                    let textClass = "";
-                    
+                    // We remove conditional Size/Blur classes here because the JS loop handles them continuously
                     const marginClass = line.isContinuation ? "mt-3" : "mt-10";
-
-                    if (isActive) {
-                        containerClass = "scale-100 blur-0 opacity-100";
-                        textClass = "font-extrabold text-3xl lg:text-5xl drop-shadow-sm";
-                    } else if (distance === 1) {
-                        containerClass = "scale-[0.98] blur-[0.5px] opacity-60";
-                        textClass = `font-bold text-2xl lg:text-4xl ${isDarkMode ? 'text-white/90' : 'text-black/80'}`;
-                    } else if (distance === 2) {
-                        containerClass = "scale-[0.95] blur-[1.5px] opacity-30";
-                        textClass = `font-bold text-xl lg:text-3xl ${isDarkMode ? 'text-white/80' : 'text-black/60'}`;
-                    } else {
-                        containerClass = "scale-[0.9] blur-[3px] opacity-10";
-                        textClass = `font-bold text-lg lg:text-2xl ${lyricInactiveColor}`;
-                    }
+                    const textClass = `font-bold text-3xl lg:text-5xl drop-shadow-sm transition-colors duration-300`;
 
                     const renderActiveContent = () => {
                         const progress = currentTime < line.time ? 0 : 
@@ -634,7 +723,7 @@ const App: React.FC = () => {
                         const subProgress = (progress * totalChars) % 1; 
 
                         return (
-                            <span className={`inline-block w-full break-words leading-tight tracking-tight py-1 ${textClass} ${transitionClass}`}>
+                            <span className={`inline-block w-full break-words leading-tight tracking-tight py-1 ${textClass}`}>
                                 {chars.map((char, charIdx) => {
                                     // Optimization: Reduce conditionals inside the map if possible, but structure requires it
                                     if (charIdx < activeCharIndex) {
@@ -668,11 +757,12 @@ const App: React.FC = () => {
                     return (
                         <div 
                             key={i} 
-                            className={`transition-[transform,opacity,filter,margin] duration-700 ease-out origin-left cursor-pointer hover:opacity-80 group w-full ${containerClass} ${marginClass}`}
+                            // Add will-change-transform optimization
+                            className={`origin-left cursor-pointer hover:opacity-80 group w-full will-change-transform ${marginClass}`}
                             onClick={() => handleSeek(line.time)}
                         >
                             {isActive ? renderActiveContent() : (
-                                <span className={`inline-block leading-tight tracking-tight py-1 break-words text-balance ${textClass} ${transitionClass}`}>
+                                <span className={`inline-block leading-tight tracking-tight py-1 break-words text-balance ${textClass} ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>
                                     {line.text}
                                 </span>
                             )}
@@ -694,6 +784,20 @@ const App: React.FC = () => {
                         </span>
                     </div>
                 )}
+            </div>
+
+            {/* Back to Focus Button */}
+            <div className={`absolute bottom-8 right-8 transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isUserScrolling ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-90 pointer-events-none'}`}>
+                 <button 
+                    onClick={scrollToCurrentLyric}
+                    className={`p-3.5 rounded-full backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.3)] active:scale-90 transition-all duration-300 group relative overflow-hidden border ${isDarkMode ? 'bg-white/10 text-white border-white/10 hover:bg-white/20' : 'bg-black/5 text-black border-black/5 hover:bg-black/10'}`}
+                 >
+                     <LocateFixed className="w-5 h-5 relative z-10" />
+                     {/* Glossy Glow Effect */}
+                     <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 ${isDarkMode ? 'bg-gradient-to-tr from-white/0 via-white/10 to-white/0' : 'bg-gradient-to-tr from-black/0 via-black/5 to-black/0'}`} />
+                     {/* Pulse Ring */}
+                     <div className={`absolute inset-0 rounded-full animate-ping opacity-20 ${isDarkMode ? 'bg-white' : 'bg-black'} ${isUserScrolling ? '' : 'hidden'}`} style={{ animationDuration: '3s' }} />
+                 </button>
             </div>
         </div>
       </div>
