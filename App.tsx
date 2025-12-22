@@ -473,7 +473,7 @@ const App: React.FC = () => {
                                     <span className="text-sm font-semibold opacity-90">{c.user.nickname}</span>
                                     <span className="text-xs opacity-30">{new Date(c.time).toLocaleDateString()}</span>
                                 </div>
-                                <p className="text-sm opacity-70 leading-relaxed font-light">{c.content}</p>
+                                <p className="text-base opacity-90 leading-relaxed font-normal">{c.content}</p>
                                 <div className="flex items-center gap-1 mt-2 text-xs opacity-30 group-hover:opacity-50 transition-opacity">
                                     <Heart className="w-3 h-3" /> {c.likedCount}
                                 </div>

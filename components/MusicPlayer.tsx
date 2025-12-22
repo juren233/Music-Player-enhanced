@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Volume2, ListMusic, MessageSquare, Moon, Sun, Monitor, Laptop, Shuffle, ArrowRight } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Volume2, Volume1, VolumeX, ListMusic, MessageSquare, Moon, Sun, Monitor, Laptop, Shuffle, ArrowRight } from 'lucide-react';
 import { Track } from '../types';
 import { ThemeMode } from '../App';
 
@@ -36,11 +36,22 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   
   const [animatingTheme, setAnimatingTheme] = useState(false);
   const [animatingReverse, setAnimatingReverse] = useState(false);
+  const [animatingComments, setAnimatingComments] = useState(false);
   
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
   const [dragTime, setDragTime] = useState(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
+
+  // Volume Memory for Mute Toggle
+  const lastVolumeRef = useRef(volume > 0 ? volume : 0.5);
+
+  // Update last volume when user changes it (so we know what to restore to)
+  useEffect(() => {
+    if (volume > 0) {
+      lastVolumeRef.current = volume;
+    }
+  }, [volume]);
 
   // Trigger animation state on theme change
   useEffect(() => {
@@ -55,6 +66,21 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
     const timer = setTimeout(() => setAnimatingReverse(false), 400);
     return () => clearTimeout(timer);
   }, [isReverse]);
+
+  const handleCommentsClick = () => {
+    setAnimatingComments(true);
+    onToggleComments();
+    const timer = setTimeout(() => setAnimatingComments(false), 300);
+    return () => clearTimeout(timer);
+  };
+
+  const toggleMute = () => {
+    if (volume > 0) {
+      onVolumeChange(0);
+    } else {
+      onVolumeChange(lastVolumeRef.current);
+    }
+  };
 
   // --- Dragging Logic ---
   const calculateTimeFromEvent = (clientX: number) => {
@@ -125,6 +151,9 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   const shuffleActiveClass = isShuffle 
       ? (isDarkMode ? 'bg-white/10 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]' : 'bg-black/10 text-black shadow-[0_0_10px_rgba(0,0,0,0.1)]') 
       : textDimColor;
+
+  // Determine Volume Icon
+  const VolumeIcon = volume === 0 ? VolumeX : (volume < 0.5 ? Volume1 : Volume2);
 
   return (
     <div className="w-full h-[96px] relative z-50">
@@ -236,15 +265,24 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 </button>
 
                 <button 
-                    onClick={onToggleComments} 
-                    className={`p-2 rounded-lg ${transitionClass} ${textDimColor} ${iconHoverClass}`}
+                    onClick={handleCommentsClick} 
+                    className={`p-2 rounded-lg relative overflow-hidden ${transitionClass} ${textDimColor} ${iconHoverClass} ${animatingComments ? 'scale-90' : 'scale-100'}`}
                     title="Comments"
                 >
-                    <MessageSquare className="w-5 h-5" />
+                    <div className={`transition-transform duration-300 ease-spring ${animatingComments ? 'scale-90 rotate-6' : 'scale-100 rotate-0'}`}>
+                        <MessageSquare className="w-5 h-5" />
+                    </div>
                 </button>
 
                 <div className="flex items-center gap-3 group w-24">
-                    <Volume2 className={`w-5 h-5 ${transitionClass} ${textDimColor}`} />
+                    <button 
+                        onClick={toggleMute}
+                        className={`p-1 rounded-md relative ${transitionClass} ${textDimColor} ${iconHoverClass} active:scale-90`}
+                        title={volume === 0 ? "取消静音" : "静音"}
+                    >
+                        <VolumeIcon className={`w-5 h-5 transition-transform duration-300 ${volume === 0 ? 'scale-90' : 'scale-100'}`} />
+                    </button>
+                    
                     <div className={`flex-1 h-1 rounded-full relative cursor-pointer ${isDarkMode ? 'bg-neutral-700' : 'bg-black/10'}`}>
                         <input 
                             type="range" min="0" max="1" step="0.01" value={volume}
