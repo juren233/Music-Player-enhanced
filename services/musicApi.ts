@@ -12,6 +12,8 @@ const API_BASES = [
   'https://netease-cloud-music-api-ochre-two.vercel.app',
   'https://music-api-theta-liart.vercel.app',
   'https://ncm.cloud.zlib.cn',
+  'https://api.lo-li.cw',
+  'https://music.163.com/api', // 官方接口 (可能跨域，作为最后的备选)
 ];
 
 // 缓存当前最快的 API 节点
@@ -65,7 +67,10 @@ const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
  * 智能 API 请求函数
  * 策略：
  * 1. 如果已有最优节点，优先使用。
- * 2. 如果无最优节点或请求失败，触发"赛马模式" (promiseAny)，同时请求 N 个节点，谁快用谁。
+ * 2. 如果无最优节点或请求失败，触发"分批赛马模式"。
+ * 3. 将所有节点打乱后按批次(Batch)尝试，每批同时并发请求 N 个。
+ * 4. 只要有一批中有一个成功，即返回结果并更新最优节点。
+ * 5. 如果所有批次都失败，抛出错误。
  */
 const fetchWithFailover = async (path: string): Promise<any> => {
   const separator = path.includes('?') ? '&' : '?';
@@ -75,10 +80,12 @@ const fetchWithFailover = async (path: string): Promise<any> => {
   if (currentBestBase) {
       try {
           const url = `${currentBestBase}${path}${separator}${timestamp}`;
-          const res = await fetchWithTimeout(url, 8000); 
+          // 缓存节点的超时时间可以设短一点，因为它应该是快的
+          const res = await fetchWithTimeout(url, 5000); 
           if (!res.ok) throw new Error(`Status ${res.status}`);
           
           const data = await res.json();
+          // 部分接口虽然 200 但返回 code!=200
           if (data.code && data.code !== 200) throw new Error(`API Code ${data.code}`);
           
           return data;
@@ -88,37 +95,46 @@ const fetchWithFailover = async (path: string): Promise<any> => {
       }
   }
 
-  // 2. 赛马通道：随机选取前 6 个节点进行并发竞速
-  // 随机化避免所有客户端同时阻塞在列表头部的死节点上
-  const candidates = [...API_BASES]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 6); 
+  // 2. 深度赛马模式：打乱所有节点，分批尝试
+  const allCandidates = [...API_BASES].sort(() => Math.random() - 0.5);
+  const BATCH_SIZE = 3; // 每批并发 3 个请求，避免浏览器并发限制
   
-  try {
-      // promiseAny 会等待第一个 *成功* (Fulfilled) 的结果
-      const winnerResponse = await promiseAny(
-          candidates.map(async (base) => {
-              const url = `${base}${path}${separator}${timestamp}`;
-              const res = await fetchWithTimeout(url, 8000); // 竞速超时
-              if (!res.ok) throw new Error('Network response was not ok');
-              
-              const data = await res.json();
-              if (data.code && data.code !== 200) throw new Error(`API Error: ${data.code}`);
-              
-              // 副作用：胜利者即刻成为新的最优节点
-              if (!currentBestBase) {
-                  currentBestBase = base;
-                  // console.log(`🏆 New fastest API node found: ${base}`);
-              }
-              return data;
-          })
-      );
+  let lastError: any = null;
+
+  for (let i = 0; i < allCandidates.length; i += BATCH_SIZE) {
+      const batch = allCandidates.slice(i, i + BATCH_SIZE);
       
-      return winnerResponse;
-  } catch (aggregateError) {
-      console.error("All API candidates failed.", aggregateError);
-      throw new Error("无法连接到任何音乐服务器，请检查网络连接。");
+      try {
+          // 等待这一批中任意一个成功
+          const winnerResponse = await promiseAny(
+              batch.map(async (base) => {
+                  const url = `${base}${path}${separator}${timestamp}`;
+                  const res = await fetchWithTimeout(url, 8000); 
+                  if (!res.ok) throw new Error(`Network response was not ok: ${res.status}`);
+                  
+                  const data = await res.json();
+                  if (data.code && data.code !== 200) throw new Error(`API Error: ${data.code}`);
+                  
+                  // 胜利者即刻成为新的最优节点
+                  if (!currentBestBase) {
+                      currentBestBase = base;
+                      // console.log(`🏆 New fastest API node found: ${base}`);
+                  }
+                  return data;
+              })
+          );
+          
+          return winnerResponse;
+      } catch (batchError) {
+          // 这一批全军覆没，继续下一批
+          lastError = batchError;
+          continue;
+      }
   }
+
+  // 所有批次都失败了
+  console.error("All API candidates failed.", lastError);
+  throw new Error("无法连接到任何音乐服务器，请检查网络连接。");
 };
 
 // 统一处理歌曲数据格式，解决不同 API 返回结构不一致问题
