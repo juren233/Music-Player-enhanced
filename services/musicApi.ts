@@ -1,15 +1,17 @@
+
 import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from '../types';
 
 // 优化后的 API 列表，包含更稳定的镜像源
 // 移除了部分极其不稳定的 Vercel 免费实例
 const API_BASES = [
-  'https://music.cyrilstudio.top', // 通常速度较快
-  'https://netease-cloud-music-api-anon.vercel.app', // 官方维护的匿名版
-  'https://api.music.areschang.top', // 备用镜像
+  'https://music.cyrilstudio.top', 
+  'https://netease-cloud-music-api-anon.vercel.app',
+  'https://api.mtnhao.com', 
+  'https://api.music.areschang.top',
   'https://music-api.heheda.top',
   'https://ncmapi.redd.one',
-  'https://music-api-theta-liart.vercel.app',
-  'https://ncm.cloud.zlib.cn',
+  'https://music.qier222.com/api',
+  'https://ncm.cloud.zlib.cn'
 ];
 
 // 缓存当前最快的 API 节点
@@ -19,7 +21,7 @@ let currentBestBase: string | null = null;
  * 带有超时的 Fetch 包装器
  * 限制每个单独请求的最大等待时间，避免被慢节点拖死
  */
-const fetchWithTimeout = async (url: string, timeout = 5000) => {
+const fetchWithTimeout = async (url: string, timeout = 10000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -72,7 +74,8 @@ const fetchWithFailover = async (path: string): Promise<any> => {
   if (currentBestBase) {
       try {
           const url = `${currentBestBase}${path}${separator}${timestamp}`;
-          const res = await fetchWithTimeout(url, 6000); // 稍微放宽一点超时给已验证节点
+          // 稍微放宽一点超时给已验证节点，避免偶尔的网络波动导致重置
+          const res = await fetchWithTimeout(url, 12000); 
           if (!res.ok) throw new Error(`Status ${res.status}`);
           
           const data = await res.json();
@@ -85,16 +88,17 @@ const fetchWithFailover = async (path: string): Promise<any> => {
       }
   }
 
-  // 2. 赛马通道：选取前 5 个节点进行并发竞速
-  // 这种方式虽然多发了请求，但能确保用户连接到当前网络环境下最快的节点
-  const candidates = API_BASES.slice(0, 5); 
+  // 2. 赛马通道：选取前 6 个节点进行并发竞速
+  // 增加候选数量，提高成功率
+  const candidates = API_BASES.slice(0, 6); 
   
   try {
       // promiseAny 会等待第一个 *成功* (Fulfilled) 的结果
       const winnerResponse = await promiseAny(
           candidates.map(async (base) => {
               const url = `${base}${path}${separator}${timestamp}`;
-              const res = await fetchWithTimeout(url, 5000); // 竞速时超时要短，快速过滤慢节点
+              // 竞速时超时设置，考虑到 Vercel 冷启动，设置为 8秒
+              const res = await fetchWithTimeout(url, 8000); 
               if (!res.ok) throw new Error('Network response was not ok');
               
               const data = await res.json();

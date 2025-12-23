@@ -170,7 +170,7 @@ export const MusicPlayer = React.memo<MusicPlayerProps>(({
         <div className="relative h-full max-w-screen-2xl mx-auto px-6 flex items-center justify-between gap-8">
             
             {/* 1. Track Info (Left) */}
-            <div className="flex items-center gap-4 w-[25%] min-w-[200px]">
+            <div key={currentTrack?.id} className="flex items-center gap-4 w-[25%] min-w-[200px] animate-smooth-appear">
                 {currentTrack && (
                 <>
                     <div className="relative group cursor-pointer" onClick={onToggleQueue}>
