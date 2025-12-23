@@ -118,11 +118,17 @@ const fetchWithFailover = async (path: string): Promise<any> => {
 
 // 统一处理歌曲数据格式，解决不同 API 返回结构不一致问题
 const normalizeTrack = (s: any): Track => {
+  const al = s.al || s.album || {};
   return {
     id: s.id,
     name: s.name,
     ar: s.ar || s.artists || [],
-    al: s.al || s.album || { id: 0, name: 'Unknown Album', picUrl: '' },
+    al: {
+        id: al.id || 0,
+        name: al.name || 'Unknown Album',
+        // 确保 picUrl 存在。如果 pic_str 是 URL 则使用它，否则忽略（避免使用数字 ID 作为 URL）
+        picUrl: al.picUrl || (al.pic_str && al.pic_str.startsWith('http') ? al.pic_str : '') || '' 
+    },
     dt: s.dt || s.duration || 0,
     fee: s.fee
   };
@@ -208,13 +214,15 @@ export const fetchArtistDetail = async (artistId: number): Promise<any> => {
 };
 
 export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'time', limit = 100): Promise<Track[]> => {
+    // 优先使用 top/song 接口获取热门歌曲，因为它的数据最完整（包含封面），而 artist/songs 往往缺乏封面信息
+    if (order === 'hot') {
+        return fetchArtistTopSongs(artistId);
+    }
+    
     try {
         const data = await fetchWithFailover(`/artist/songs?id=${artistId}&order=${order}&limit=${limit}`);
         return (data.songs || []).map(normalizeTrack);
     } catch (e) {
-        if (order === 'hot') {
-            return fetchArtistTopSongs(artistId);
-        }
         return [];
     }
 };
