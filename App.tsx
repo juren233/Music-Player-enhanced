@@ -90,7 +90,16 @@ const App: React.FC = () => {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     return (localStorage.getItem('vinyl_theme') as ThemeMode) || 'system';
   });
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  
+  // Synchronously initialize dark mode state to match system/storage immediately
+  // This prevents the "flash of wrong theme" on first render
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedMode = (localStorage.getItem('vinyl_theme') as ThemeMode) || 'system';
+    if (savedMode === 'system') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return savedMode === 'dark';
+  });
 
   // Error handling
   const [consecutiveErrors, setConsecutiveErrors] = useState(0);
@@ -1156,7 +1165,7 @@ const App: React.FC = () => {
   ), [currentTrack?.al.picUrl, isPlaying, dominantColor, isDarkMode]);
 
   if (isLoading) {
-      return <div className="h-screen w-screen flex items-center justify-center bg-black text-white"><Loader2 className="animate-spin w-10 h-10" /></div>;
+      return <div className={`h-screen w-screen flex items-center justify-center ${isDarkMode ? 'bg-black text-white' : 'bg-[#f5f5f7] text-black'}`}><Loader2 className="animate-spin w-10 h-10" /></div>;
   }
 
   if (playlist.length === 0) {
