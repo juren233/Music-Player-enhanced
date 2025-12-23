@@ -5,9 +5,11 @@ import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from '../types
 const API_BASES = [
   'https://music.cyrilstudio.top', // 通常速度较快
   'https://netease-cloud-music-api-anon.vercel.app', // 官方维护的匿名版
-  'https://api.music.areschang.top', // 备用镜像
+  'https://netease-cloud-music-api-beta-lyart.vercel.app', // 社区备用
   'https://music-api.heheda.top',
   'https://ncmapi.redd.one',
+  'https://api.music.areschang.top',
+  'https://netease-cloud-music-api-ochre-two.vercel.app',
   'https://music-api-theta-liart.vercel.app',
   'https://ncm.cloud.zlib.cn',
 ];
@@ -18,8 +20,9 @@ let currentBestBase: string | null = null;
 /**
  * 带有超时的 Fetch 包装器
  * 限制每个单独请求的最大等待时间，避免被慢节点拖死
+ * 增加超时时间以适应 Serverless 冷启动
  */
-const fetchWithTimeout = async (url: string, timeout = 5000) => {
+const fetchWithTimeout = async (url: string, timeout = 10000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -62,7 +65,7 @@ const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
  * 智能 API 请求函数
  * 策略：
  * 1. 如果已有最优节点，优先使用。
- * 2. 如果无最优节点或请求失败，触发"赛马模式" (promiseAny)，同时请求前 N 个节点，谁快用谁。
+ * 2. 如果无最优节点或请求失败，触发"赛马模式" (promiseAny)，同时请求 N 个节点，谁快用谁。
  */
 const fetchWithFailover = async (path: string): Promise<any> => {
   const separator = path.includes('?') ? '&' : '?';
@@ -72,7 +75,7 @@ const fetchWithFailover = async (path: string): Promise<any> => {
   if (currentBestBase) {
       try {
           const url = `${currentBestBase}${path}${separator}${timestamp}`;
-          const res = await fetchWithTimeout(url, 6000); // 稍微放宽一点超时给已验证节点
+          const res = await fetchWithTimeout(url, 8000); 
           if (!res.ok) throw new Error(`Status ${res.status}`);
           
           const data = await res.json();
@@ -85,16 +88,18 @@ const fetchWithFailover = async (path: string): Promise<any> => {
       }
   }
 
-  // 2. 赛马通道：选取前 5 个节点进行并发竞速
-  // 这种方式虽然多发了请求，但能确保用户连接到当前网络环境下最快的节点
-  const candidates = API_BASES.slice(0, 5); 
+  // 2. 赛马通道：随机选取前 6 个节点进行并发竞速
+  // 随机化避免所有客户端同时阻塞在列表头部的死节点上
+  const candidates = [...API_BASES]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 6); 
   
   try {
       // promiseAny 会等待第一个 *成功* (Fulfilled) 的结果
       const winnerResponse = await promiseAny(
           candidates.map(async (base) => {
               const url = `${base}${path}${separator}${timestamp}`;
-              const res = await fetchWithTimeout(url, 5000); // 竞速时超时要短，快速过滤慢节点
+              const res = await fetchWithTimeout(url, 8000); // 竞速超时
               if (!res.ok) throw new Error('Network response was not ok');
               
               const data = await res.json();

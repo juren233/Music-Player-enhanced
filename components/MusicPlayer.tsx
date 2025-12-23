@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, SkipForward, SkipBack, Volume2, Volume1, VolumeX, ListMusic, MessageSquare, Moon, Sun, Laptop, Shuffle, ArrowRight } from 'lucide-react';
 import { Track } from '../types';
-import { ThemeMode } from '../App';
+import { ThemeMode } from '../hooks/useTheme';
 
 interface MusicPlayerProps {
   currentTrack: Track | null;
