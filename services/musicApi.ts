@@ -1,40 +1,155 @@
 import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from '../types';
 
-// 优化后的 API 列表，包含更稳定的镜像源
-// 移除了部分极其不稳定的 Vercel 免费实例
+// 完整 API 列表（2025年1月更新）
 const API_BASES = [
-  'https://music.cyrilstudio.top', // 通常速度较快
-  'https://netease-cloud-music-api-anon.vercel.app', // 官方维护的匿名版
-  'https://netease-cloud-music-api-beta-lyart.vercel.app', // 社区备用
+  // 2025-12-22 ZMusic 公开服务器（国内）
+  'https://ncm.zhenxin.me',      // 上海
+  'https://zm.i9mr.com',         // 扬州
+  'https://zm.wwoyun.cn',        // 宁波
+  // 其他公开源（国内）
+  'https://music.cyrilstudio.top',
   'https://music-api.heheda.top',
   'https://ncmapi.redd.one',
   'https://api.music.areschang.top',
-  'https://netease-cloud-music-api-ochre-two.vercel.app',
-  'https://music-api-theta-liart.vercel.app',
   'https://ncm.cloud.zlib.cn',
   'https://api.lo-li.cw',
-  'https://music.163.com/api', // 官方接口 (可能跨域，作为最后的备选)
+  // 以下为备用源（海外/Vercel），暂时注释
+  // 'https://music.mcseekeri.com', // 美国
+  // 'https://netease-cloud-music-api-anon.vercel.app',
+  // 'https://netease-cloud-music-api-beta-lyart.vercel.app',
+  // 'https://netease-cloud-music-api-ochre-two.vercel.app',
+  // 'https://music-api-theta-liart.vercel.app',
 ];
 
-// 缓存当前最快的 API 节点
-let currentBestBase: string | null = null;
+// 6 个模块类型
+export type ApiModule = 'recommend' | 'playlist' | 'search' | 'artist' | 'lyrics' | 'comments';
+
+// 模块名称映射（用于 UI 显示）
+export const API_MODULE_NAMES: Record<ApiModule, string> = {
+  recommend: '推荐歌单',
+  playlist: '播放列表',
+  search: '搜索',
+  artist: '歌手',
+  lyrics: '歌词',
+  comments: '评论',
+};
+
+// 从 localStorage 恢复各模块最优节点
+const loadModuleBestBases = (): Record<ApiModule, string | null> => {
+  const modules: ApiModule[] = ['recommend', 'playlist', 'search', 'artist', 'lyrics', 'comments'];
+  const result: Record<ApiModule, string | null> = {} as any;
+
+  for (const mod of modules) {
+    try {
+      const saved = localStorage.getItem(`vinyl_api_${mod}`);
+      result[mod] = (saved && API_BASES.includes(saved)) ? saved : null;
+    } catch {
+      result[mod] = null;
+    }
+  }
+  return result;
+};
+
+// 各模块最优节点缓存
+const moduleBestBases = loadModuleBestBases();
+
+// 保存模块最优节点
+const saveModuleBestBase = (module: ApiModule, base: string) => {
+  moduleBestBases[module] = base;
+  try { localStorage.setItem(`vinyl_api_${module}`, base); } catch { }
+};
+
+// 导出：重置指定模块的最优节点
+export const resetModuleApiNode = (module: ApiModule) => {
+  moduleBestBases[module] = null;
+  try { localStorage.removeItem(`vinyl_api_${module}`); } catch { }
+};
+
+// 各模块测试用的 API 路径
+const MODULE_TEST_PATHS: Record<ApiModule, string> = {
+  recommend: '/personalized?limit=1',
+  playlist: '/playlist/track/all?id=833444858&limit=1',
+  search: '/cloudsearch?keywords=test&type=1&limit=1',
+  artist: '/artist/detail?id=12138269',
+  lyrics: '/lyric?id=1974443814',
+  comments: '/comment/music?id=1974443814&limit=1',
+};
+
+// 导出：刷新指定模块 - 实际发起请求竞速找到最快源
+export const refreshModuleApiNode = async (module: ApiModule): Promise<string | null> => {
+  // 先清除缓存
+  moduleBestBases[module] = null;
+  try { localStorage.removeItem(`vinyl_api_${module}`); } catch { }
+
+  const TIMEOUT = 4500;
+  const startTime = performance.now();
+  const testPath = MODULE_TEST_PATHS[module];
+
+  // 所有节点并发竞速
+  const racePromises = API_BASES.map(async (base) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+
+    try {
+      const url = `${base}${testPath}&timestamp=${Date.now()}`;
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      const data = await res.json();
+      if (data.code && data.code !== 200) throw new Error(`API Error ${data.code}`);
+
+      return { base, success: true };
+    } catch {
+      clearTimeout(timeoutId);
+      throw new Error(`Failed: ${base}`);
+    }
+  });
+
+  try {
+    // 使用自定义 promiseAny，谁先成功谁就是最快的
+    const winner = await promiseAny(racePromises);
+    saveModuleBestBase(module, winner.base);
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`🏆 [${API_MODULE_NAMES[module]}] 新最快源: ${winner.base} | ${elapsed}s`);
+    return winner.base;
+  } catch {
+    console.error(`[${module}] 所有节点测速失败`);
+    return null;
+  }
+};
+
+// 导出：重置所有模块节点（用于首页刷新按钮）
+export const resetBestApiNode = () => {
+  const modules: ApiModule[] = ['recommend', 'playlist', 'search', 'artist', 'lyrics', 'comments'];
+  modules.forEach(mod => resetModuleApiNode(mod));
+};
+
+// 导出：获取所有模块的节点状态
+export const getModuleApiNodes = (): Record<ApiModule, string | null> => ({ ...moduleBestBases });
+
+// 导出：获取单个模块节点（兼容旧代码）
+export const getCurrentApiNode = () => moduleBestBases.playlist || moduleBestBases.recommend;
+
+// 专辑封面缓存
+const albumCoverCache: Record<number, string> = {};
 
 /**
  * 带有超时的 Fetch 包装器
  * 限制每个单独请求的最大等待时间，避免被慢节点拖死
  * 增加超时时间以适应 Serverless 冷启动
  */
-const fetchWithTimeout = async (url: string, timeout = 10000) => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
-    try {
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(id);
-        return response;
-    } catch (error) {
-        clearTimeout(id);
-        throw error;
-    }
+const fetchWithTimeout = async (url: string, timeout = 8000) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
 };
 
 /**
@@ -42,98 +157,95 @@ const fetchWithTimeout = async (url: string, timeout = 10000) => {
  * Returns the first fulfilled promise, or rejects if all fail.
  */
 const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
-    return new Promise((resolve, reject) => {
-        if (promises.length === 0) {
-            reject(new Error("No promises provided"));
-            return;
+  return new Promise((resolve, reject) => {
+    if (promises.length === 0) {
+      reject(new Error("No promises provided"));
+      return;
+    }
+
+    let rejectedCount = 0;
+    const errors: any[] = [];
+
+    promises.forEach((p) => {
+      Promise.resolve(p).then(resolve).catch((e) => {
+        rejectedCount++;
+        errors.push(e);
+        if (rejectedCount === promises.length) {
+          reject(new Error("All promises rejected"));
         }
-
-        let rejectedCount = 0;
-        const errors: any[] = [];
-
-        promises.forEach((p) => {
-            Promise.resolve(p).then(resolve).catch((e) => {
-                rejectedCount++;
-                errors.push(e);
-                if (rejectedCount === promises.length) {
-                    reject(new Error("All promises rejected"));
-                }
-            });
-        });
+      });
     });
+  });
 };
 
 /**
- * 智能 API 请求函数
- * 策略：
- * 1. 如果已有最优节点，优先使用。
- * 2. 如果无最优节点或请求失败，触发"分批赛马模式"。
- * 3. 将所有节点打乱后按批次(Batch)尝试，每批同时并发请求 N 个。
- * 4. 只要有一批中有一个成功，即返回结果并更新最优节点。
- * 5. 如果所有批次都失败，抛出错误。
+ * 智能 API 请求函数（分模块赛马）
+ * @param path API 路径
+ * @param module 模块名称，用于独立存储最优节点
  */
-const fetchWithFailover = async (path: string): Promise<any> => {
+const fetchWithFailover = async (path: string, module: ApiModule = 'playlist'): Promise<any> => {
   const separator = path.includes('?') ? '&' : '?';
   const timestamp = `timestamp=${Date.now()}`;
-  
-  // 1. 快速通道：如果已经锁定了最快节点，直接尝试
-  if (currentBestBase) {
-      try {
-          const url = `${currentBestBase}${path}${separator}${timestamp}`;
-          // 缓存节点的超时时间可以设短一点，因为它应该是快的
-          const res = await fetchWithTimeout(url, 5000); 
-          if (!res.ok) throw new Error(`Status ${res.status}`);
-          
-          const data = await res.json();
-          // 部分接口虽然 200 但返回 code!=200
-          if (data.code && data.code !== 200) throw new Error(`API Code ${data.code}`);
-          
-          return data;
-      } catch (e) {
-          console.warn(`Cached node ${currentBestBase} failed, switching to Race Mode.`, e);
-          currentBestBase = null; // 缓存失效，降级到赛马模式
-      }
+  const startTime = performance.now();
+  const TIMEOUT = 4500; // 4.5 秒超时
+
+  // 1. 快速通道：使用该模块的缓存节点
+  const cachedBase = moduleBestBases[module];
+  if (cachedBase) {
+    try {
+      const url = `${cachedBase}${path}${separator}${timestamp}`;
+      const res = await fetchWithTimeout(url, TIMEOUT);
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+
+      const data = await res.json();
+      if (data.code && data.code !== 200) throw new Error(`API Code ${data.code}`);
+
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+      console.log(`🚀 [${API_MODULE_NAMES[module]}] ${cachedBase} | ${elapsed}s`);
+      return data;
+    } catch (e) {
+      console.warn(`[${module}] 缓存节点 ${cachedBase} 失败，进入赛马模式`, e);
+      moduleBestBases[module] = null;
+    }
   }
 
-  // 2. 深度赛马模式：打乱所有节点，分批尝试
-  const allCandidates = [...API_BASES].sort(() => Math.random() - 0.5);
-  const BATCH_SIZE = 3; // 每批并发 3 个请求，避免浏览器并发限制
-  
+  // 2. 赛马模式：所有节点并发竞争
+  const allCandidates = [...API_BASES];
+  const BATCH_SIZE = 5;
+
   let lastError: any = null;
 
   for (let i = 0; i < allCandidates.length; i += BATCH_SIZE) {
-      const batch = allCandidates.slice(i, i + BATCH_SIZE);
-      
-      try {
-          // 等待这一批中任意一个成功
-          const winnerResponse = await promiseAny(
-              batch.map(async (base) => {
-                  const url = `${base}${path}${separator}${timestamp}`;
-                  const res = await fetchWithTimeout(url, 8000); 
-                  if (!res.ok) throw new Error(`Network response was not ok: ${res.status}`);
-                  
-                  const data = await res.json();
-                  if (data.code && data.code !== 200) throw new Error(`API Error: ${data.code}`);
-                  
-                  // 胜利者即刻成为新的最优节点
-                  if (!currentBestBase) {
-                      currentBestBase = base;
-                      // console.log(`🏆 New fastest API node found: ${base}`);
-                  }
-                  return data;
-              })
-          );
-          
-          return winnerResponse;
-      } catch (batchError) {
-          // 这一批全军覆没，继续下一批
-          lastError = batchError;
-          continue;
-      }
+    const batch = allCandidates.slice(i, i + BATCH_SIZE);
+
+    try {
+      const winnerResponse = await promiseAny(
+        batch.map(async (base) => {
+          const url = `${base}${path}${separator}${timestamp}`;
+          const res = await fetchWithTimeout(url, TIMEOUT);
+          if (!res.ok) throw new Error(`Status ${res.status}`);
+
+          const data = await res.json();
+          if (data.code && data.code !== 200) throw new Error(`API Error: ${data.code}`);
+
+          // 胜利者成为该模块的最优节点
+          if (!moduleBestBases[module]) {
+            saveModuleBestBase(module, base);
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            console.log(`🏆 [${API_MODULE_NAMES[module]}] 新最快源: ${base} | ${elapsed}s`);
+          }
+          return data;
+        })
+      );
+
+      return winnerResponse;
+    } catch (batchError) {
+      lastError = batchError;
+      continue;
+    }
   }
 
-  // 所有批次都失败了
-  console.error("All API candidates failed.", lastError);
+  console.error(`[${module}] 所有节点均失败`, lastError);
   throw new Error("无法连接到任何音乐服务器，请检查网络连接。");
 };
 
@@ -145,19 +257,31 @@ const normalizeTrack = (s: any): Track => {
     name: s.name,
     ar: s.ar || s.artists || [],
     al: {
-        id: al.id || 0,
-        name: al.name || 'Unknown Album',
-        // 确保 picUrl 存在。如果 pic_str 是 URL 则使用它，否则忽略（避免使用数字 ID 作为 URL）
-        picUrl: al.picUrl || (al.pic_str && al.pic_str.startsWith('http') ? al.pic_str : '') || '' 
+      id: al.id || 0,
+      name: al.name || 'Unknown Album',
+      // 确保 picUrl 存在。如果 pic_str 是 URL 则使用它，否则忽略（避免使用数字 ID 作为 URL）
+      picUrl: al.picUrl || (al.pic_str && al.pic_str.startsWith('http') ? al.pic_str : '') || ''
     },
     dt: s.dt || s.duration || 0,
     fee: s.fee
   };
 };
 
+// 快速获取播放列表（只获取前3首，用于快速进入页面）
+export const fetchPlaylistQuick = async (id: string): Promise<Track[]> => {
+  try {
+    const data = await fetchWithFailover(`/playlist/track/all?id=${id}&limit=3&offset=0`, 'playlist');
+    return (data.songs || []).map(normalizeTrack);
+  } catch (e) {
+    console.error("Failed to fetch playlist quick", e);
+    throw e;
+  }
+};
+
+// 获取完整播放列表
 export const fetchPlaylist = async (id: string): Promise<Track[]> => {
   try {
-    const data = await fetchWithFailover(`/playlist/track/all?id=${id}&limit=200&offset=0`);
+    const data = await fetchWithFailover(`/playlist/track/all?id=${id}&limit=200&offset=0`, 'playlist');
     return (data.songs || []).map(normalizeTrack);
   } catch (e) {
     console.error("Failed to fetch playlist", e);
@@ -167,7 +291,7 @@ export const fetchPlaylist = async (id: string): Promise<Track[]> => {
 
 export const fetchRecommendedPlaylists = async (): Promise<RecommendedPlaylist[]> => {
   try {
-    const data = await fetchWithFailover('/personalized?limit=30');
+    const data = await fetchWithFailover('/personalized?limit=30', 'recommend');
     return data.result || [];
   } catch (e) {
     return [];
@@ -176,15 +300,15 @@ export const fetchRecommendedPlaylists = async (): Promise<RecommendedPlaylist[]
 
 export const searchPlaylists = async (keywords: string): Promise<RecommendedPlaylist[]> => {
   try {
-    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1000&limit=30`);
+    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1000&limit=30`, 'search');
     const playlists = data.result?.playlists || [];
-    
+
     return playlists.map((p: any) => ({
       id: p.id,
       name: p.name,
-      picUrl: p.coverImgUrl, 
+      picUrl: p.coverImgUrl,
       playCount: p.playCount,
-      copywriter: p.creator?.nickname 
+      copywriter: p.creator?.nickname
     }));
   } catch (e) {
     return [];
@@ -193,7 +317,7 @@ export const searchPlaylists = async (keywords: string): Promise<RecommendedPlay
 
 export const searchSongs = async (keywords: string): Promise<Track[]> => {
   try {
-    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1&limit=30`);
+    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=1&limit=30`, 'search');
     const songs = data.result?.songs || [];
     return songs.map(normalizeTrack);
   } catch (e) {
@@ -203,7 +327,7 @@ export const searchSongs = async (keywords: string): Promise<Track[]> => {
 
 export const searchArtists = async (keywords: string): Promise<Artist[]> => {
   try {
-    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=100&limit=30`);
+    const data = await fetchWithFailover(`/cloudsearch?keywords=${encodeURIComponent(keywords)}&type=100&limit=30`, 'search');
     const artists = data.result?.artists || [];
 
     return artists.map((a: any) => ({
@@ -218,7 +342,7 @@ export const searchArtists = async (keywords: string): Promise<Artist[]> => {
 
 export const fetchArtistTopSongs = async (artistId: number): Promise<Track[]> => {
   try {
-    const data = await fetchWithFailover(`/artist/top/song?id=${artistId}`);
+    const data = await fetchWithFailover(`/artist/top/song?id=${artistId}`, 'artist');
     return (data.songs || []).map(normalizeTrack);
   } catch (e) {
     throw e;
@@ -226,26 +350,65 @@ export const fetchArtistTopSongs = async (artistId: number): Promise<Track[]> =>
 };
 
 export const fetchArtistDetail = async (artistId: number): Promise<any> => {
-    try {
-        const data = await fetchWithFailover(`/artist/detail?id=${artistId}`);
-        return data.data?.artist || data.artist || {};
-    } catch (e) {
-        return {};
-    }
+  try {
+    const data = await fetchWithFailover(`/artist/detail?id=${artistId}`, 'artist');
+    return data.data?.artist || data.artist || {};
+  } catch (e) {
+    return {};
+  }
 };
 
 export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'time', limit = 100): Promise<Track[]> => {
-    // 优先使用 top/song 接口获取热门歌曲，因为它的数据最完整（包含封面），而 artist/songs 往往缺乏封面信息
-    if (order === 'hot') {
-        return fetchArtistTopSongs(artistId);
+  // 优先使用 top/song 接口获取热门歌曲，因为它的数据最完整（包含封面）
+  if (order === 'hot') {
+    return fetchArtistTopSongs(artistId);
+  }
+
+  try {
+    const data = await fetchWithFailover(`/artist/songs?id=${artistId}&order=${order}&limit=${limit}`, 'artist');
+    const songs = (data.songs || []).map(normalizeTrack);
+
+    // 收集缺失封面且未缓存的专辑 ID（去重）
+    const albumIdsToFetch: number[] = [];
+    songs.forEach((song: Track) => {
+      if (!song.al.picUrl && song.al.id) {
+        if (albumCoverCache[song.al.id]) {
+          song.al.picUrl = albumCoverCache[song.al.id];
+        } else if (!albumIdsToFetch.includes(song.al.id)) {
+          albumIdsToFetch.push(song.al.id);
+        }
+      }
+    });
+
+    // 批量获取专辑封面（限制数量以平衡速度和完整性）
+    if (albumIdsToFetch.length > 0) {
+      const idsToFetch = albumIdsToFetch.slice(0, 10);
+      const results = await Promise.allSettled(
+        idsToFetch.map(async (albumId) => {
+          const albumData = await fetchWithFailover(`/album?id=${albumId}`, 'artist');
+          const picUrl = albumData.album?.picUrl || '';
+          if (picUrl) albumCoverCache[albumId] = picUrl;
+          return { albumId, picUrl };
+        })
+      );
+
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.picUrl) {
+          albumCoverCache[result.value.albumId] = result.value.picUrl;
+        }
+      });
     }
-    
-    try {
-        const data = await fetchWithFailover(`/artist/songs?id=${artistId}&order=${order}&limit=${limit}`);
-        return (data.songs || []).map(normalizeTrack);
-    } catch (e) {
-        return [];
-    }
+
+    // 填充封面
+    return songs.map((song: Track) => {
+      if (!song.al.picUrl && albumCoverCache[song.al.id]) {
+        return { ...song, al: { ...song.al, picUrl: albumCoverCache[song.al.id] } };
+      }
+      return song;
+    });
+  } catch (e) {
+    return [];
+  }
 };
 
 export const getAudioUrl = async (id: number): Promise<string> => {
@@ -277,23 +440,23 @@ const parseLrc = (lrc: string): { time: number; text: string }[] => {
 
 export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
   try {
-    const data = await fetchWithFailover(`/lyric?id=${id}`);
-    
+    const data = await fetchWithFailover(`/lyric?id=${id}`, 'lyrics');
+
     const original = data.lrc?.lyric ? parseLrc(data.lrc.lyric) : [];
     const translation = data.tlyric?.lyric ? parseLrc(data.tlyric.lyric) : [];
 
     return original.map((line, index) => {
       const nextLine = original[index + 1];
       const rawDuration = nextLine ? nextLine.time - line.time : 5000;
-      const duration = Math.max(400, rawDuration); 
+      const duration = Math.max(400, rawDuration);
 
       const transLine = translation.find(t => Math.abs(t.time - line.time) < 500);
-      
+
       return {
         ...line,
         duration,
         trans: transLine?.text,
-        isContinuation: false 
+        isContinuation: false
       };
     });
 
@@ -304,7 +467,7 @@ export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
 
 export const fetchComments = async (id: number): Promise<Comment[]> => {
   try {
-    const data = await fetchWithFailover(`/comment/music?id=${id}&limit=20`);
+    const data = await fetchWithFailover(`/comment/music?id=${id}&limit=20`, 'comments');
     return data.hotComments || data.comments || [];
   } catch (e) {
     return [];
