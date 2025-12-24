@@ -71,8 +71,27 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
     const totalMoveX = endX - startX;
     const totalMoveY = endY - startY;
 
-    // CURVED PATH: Add random intermediate waypoints that deviate from straight line
-    const curveOffset = () => (Math.random() - 0.5) * 80; // ±40vw deviation
+    // SMOOTH PARABOLIC CURVE: Calculate a consistent curve control point
+    // The curve bows perpendicular to the direction of travel
+    // Limited intensity to ensure bending angle >= 135 degrees (gentler curves)
+    const curveIntensity = (Math.random() - 0.5) * 30; // How much the curve bows (±15vw max)
+
+    // Calculate perpendicular direction for the curve
+    const pathLength = Math.sqrt(totalMoveX * totalMoveX + totalMoveY * totalMoveY);
+    const perpX = pathLength > 0 ? -totalMoveY / pathLength : 0;
+    const perpY = pathLength > 0 ? totalMoveX / pathLength : 0;
+
+    // Quadratic bezier curve function for smooth parabolic motion
+    // t goes from 0 to 1, returns position along the curve
+    const bezierX = (t: number) => {
+        // Quadratic bezier: (1-t)²*P0 + 2*(1-t)*t*P1 + t²*P2
+        const controlX = totalMoveX * 0.5 + perpX * curveIntensity;
+        return 2 * (1 - t) * t * controlX + t * t * totalMoveX;
+    };
+    const bezierY = (t: number) => {
+        const controlY = totalMoveY * 0.5 + perpY * curveIntensity;
+        return 2 * (1 - t) * t * controlY + t * t * totalMoveY;
+    };
 
     // Random scale variations with different values for each keyframe
     const s1 = 0.7 + Math.random() * 0.3;  // 0.7-1.0
@@ -81,7 +100,12 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
     const s4 = 1.0 + Math.random() * 0.3;  // 1.0-1.3
     const s5 = 0.75 + Math.random() * 0.35; // 0.75-1.1
 
-    // CURVED PATH KEYFRAMES with opacity fade in/out for natural appearance
+    // Determine rotation direction: 1 for clockwise, -1 for counterclockwise
+    const rotationDirection = Math.random() < 0.5 ? 1 : -1;
+    // Total rotation amount (between 180 and 360 degrees)
+    const totalRotation = 180 + Math.random() * 180;
+
+    // SMOOTH PARABOLIC PATH KEYFRAMES with opacity fade in/out
     const keyframes = [
         {
             transform: `translate3d(0, 0, 0) scale(${s1}) rotate(0deg)`,
@@ -89,32 +113,32 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
             offset: 0
         },
         {
-            transform: `translate3d(${totalMoveX * 0.15 + curveOffset()}vw, ${totalMoveY * 0.15 + curveOffset()}vh, 0) scale(${s2}) rotate(${Math.random() * 60}deg)`,
+            transform: `translate3d(${bezierX(0.15)}vw, ${bezierY(0.15)}vh, 0) scale(${s2}) rotate(${rotationDirection * totalRotation * 0.15}deg)`,
             opacity: 0.9,
             offset: 0.15
         },
         {
-            transform: `translate3d(${totalMoveX * 0.35 + curveOffset()}vw, ${totalMoveY * 0.35 + curveOffset()}vh, 0) scale(${s3}) rotate(${Math.random() * 120}deg)`,
+            transform: `translate3d(${bezierX(0.35)}vw, ${bezierY(0.35)}vh, 0) scale(${s3}) rotate(${rotationDirection * totalRotation * 0.35}deg)`,
             opacity: 0.9,
             offset: 0.35
         },
         {
-            transform: `translate3d(${totalMoveX * 0.5 + curveOffset()}vw, ${totalMoveY * 0.5 + curveOffset()}vh, 0) scale(${s4}) rotate(${Math.random() * 180}deg)`,
+            transform: `translate3d(${bezierX(0.5)}vw, ${bezierY(0.5)}vh, 0) scale(${s4}) rotate(${rotationDirection * totalRotation * 0.5}deg)`,
             opacity: 0.9,
             offset: 0.5
         },
         {
-            transform: `translate3d(${totalMoveX * 0.65 + curveOffset()}vw, ${totalMoveY * 0.65 + curveOffset()}vh, 0) scale(${s3}) rotate(${Math.random() * 240}deg)`,
+            transform: `translate3d(${bezierX(0.65)}vw, ${bezierY(0.65)}vh, 0) scale(${s3}) rotate(${rotationDirection * totalRotation * 0.65}deg)`,
             opacity: 0.9,
             offset: 0.65
         },
         {
-            transform: `translate3d(${totalMoveX * 0.85 + curveOffset()}vw, ${totalMoveY * 0.85 + curveOffset()}vh, 0) scale(${s5}) rotate(${Math.random() * 300}deg)`,
+            transform: `translate3d(${bezierX(0.85)}vw, ${bezierY(0.85)}vh, 0) scale(${s5}) rotate(${rotationDirection * totalRotation * 0.85}deg)`,
             opacity: 0.9,
             offset: 0.85
         },
         {
-            transform: `translate3d(${totalMoveX}vw, ${totalMoveY}vh, 0) scale(${s1}) rotate(${Math.random() * 360}deg)`,
+            transform: `translate3d(${totalMoveX}vw, ${totalMoveY}vh, 0) scale(${s1}) rotate(${rotationDirection * totalRotation}deg)`,
             opacity: 0,
             offset: 1
         }
@@ -132,7 +156,7 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
 // --- MAIN COMPONENT ---
 export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgPalette, extractedColors, isDarkMode }) => {
     // BLOB COUNT - More instances for color variety
-    const BLOB_COUNT = 16;
+    const BLOB_COUNT = 10;
 
     const layerARef = useRef<HTMLDivElement>(null);
     const layerBRef = useRef<HTMLDivElement>(null);
@@ -193,16 +217,27 @@ export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgP
         }
     }, []);
 
-    // Color Change with debounce
+    // Color Change with debounce - track all timers to prevent interrupted transitions
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const transitionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+    // Helper to clear all transition timers
+    const clearAllTransitionTimers = useCallback(() => {
+        transitionTimersRef.current.forEach(timer => clearTimeout(timer));
+        transitionTimersRef.current = [];
+    }, []);
 
     useEffect(() => {
         const colorKey = targetColors.join(',');
         if (previousColorsRef.current.join(',') === colorKey) return;
 
+        // Clear any pending debounce
         if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
         }
+
+        // Clear any ongoing transition timers from previous transitions
+        clearAllTransitionTimers();
 
         debounceTimerRef.current = setTimeout(() => {
             previousColorsRef.current = targetColors;
@@ -213,32 +248,60 @@ export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgP
 
             if (!incomingLayer || !outgoingLayer) return;
 
-            initializeLayer(incomingLayer, targetColors);
+            // Clear previous timers before starting new transition
+            clearAllTransitionTimers();
+
+            // IMPORTANT: Snap layers to their expected states before starting new transition
+            // This prevents jumps when a new transition starts before the previous one completes
+            // Remove transition temporarily to snap instantly
+            outgoingLayer.style.transition = 'none';
+            incomingLayer.style.transition = 'none';
+
+            // Outgoing should be visible (it was the active layer)
+            outgoingLayer.style.opacity = '1';
+            // Incoming starts invisible
             incomingLayer.style.opacity = '0';
-            incomingLayer.style.transition = 'opacity 3s ease-in-out';
 
-            setTimeout(() => {
+            // Force browser to apply the instant changes before setting up new transitions
+            void outgoingLayer.offsetHeight;
+            void incomingLayer.offsetHeight;
+
+            initializeLayer(incomingLayer, targetColors);
+
+            // Now set up the new crossfade transition
+            // Duration shorter than debounce (1s) to ensure transition completes before next change
+            const transitionDuration = '0.9s';
+            incomingLayer.style.transition = `opacity ${transitionDuration} ease-in-out`;
+            outgoingLayer.style.transition = `opacity ${transitionDuration} ease-in-out`;
+
+            // Fade in the incoming layer
+            const fadeInTimer = setTimeout(() => {
                 incomingLayer.style.opacity = '1';
-            }, 100);
+            }, 50);
+            transitionTimersRef.current.push(fadeInTimer);
 
-            outgoingLayer.style.transition = 'opacity 3s ease-in-out';
-            setTimeout(() => {
+            // Fade out the outgoing layer simultaneously
+            const fadeOutTimer = setTimeout(() => {
                 outgoingLayer.style.opacity = '0';
-            }, 500);
+            }, 100);
+            transitionTimersRef.current.push(fadeOutTimer);
 
-            setTimeout(() => {
+            // Update base color
+            const colorTimer = setTimeout(() => {
                 setStableBaseColor(targetColors[0]);
-            }, 200);
+            }, 100);
+            transitionTimersRef.current.push(colorTimer);
 
             activeLayerRef.current = isLayerAActive ? 'B' : 'A';
-        }, 1000);
+        }, 1000); // Keep 1 second debounce for stability
 
         return () => {
             if (debounceTimerRef.current) {
                 clearTimeout(debounceTimerRef.current);
             }
+            clearAllTransitionTimers();
         };
-    }, [targetColors, initializeLayer]);
+    }, [targetColors, initializeLayer, clearAllTransitionTimers]);
 
     return (
         <div
@@ -257,7 +320,7 @@ export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgP
                     className="absolute inset-0"
                     style={{
                         transform: 'translateZ(0)',
-                        filter: 'blur(90px) saturate(0.65)'
+                        filter: 'blur(80px) saturate(0.65)'
                     }}
                 >
                     {/* Layer A */}
