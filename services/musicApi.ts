@@ -185,7 +185,9 @@ const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
  */
 const fetchWithFailover = async (path: string, module: ApiModule = 'playlist'): Promise<any> => {
   const separator = path.includes('?') ? '&' : '?';
-  const timestamp = `timestamp=${Date.now()}`;
+  // Add realIP to simulate mobile access (prevents API from detecting desktop browser)
+  const MOBILE_IP = '116.25.146.177'; // Chinese mobile IP
+  const commonParams = `timestamp=${Date.now()}&realIP=${MOBILE_IP}`;
   const startTime = performance.now();
   const TIMEOUT = 4500; // 4.5 秒超时
 
@@ -193,7 +195,7 @@ const fetchWithFailover = async (path: string, module: ApiModule = 'playlist'): 
   const cachedBase = moduleBestBases[module];
   if (cachedBase) {
     try {
-      const url = `${cachedBase}${path}${separator}${timestamp}`;
+      const url = `${cachedBase}${path}${separator}${commonParams}`;
       const res = await fetchWithTimeout(url, TIMEOUT);
       if (!res.ok) throw new Error(`Status ${res.status}`);
 
@@ -221,7 +223,7 @@ const fetchWithFailover = async (path: string, module: ApiModule = 'playlist'): 
     try {
       const winnerResponse = await promiseAny(
         batch.map(async (base) => {
-          const url = `${base}${path}${separator}${timestamp}`;
+          const url = `${base}${path}${separator}${commonParams}`;
           const res = await fetchWithTimeout(url, TIMEOUT);
           if (!res.ok) throw new Error(`Status ${res.status}`);
 
@@ -411,9 +413,60 @@ export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'tim
   }
 };
 
-export const getAudioUrl = async (id: number): Promise<string> => {
-  // 保持使用网易云直链，这个通常是最快的且不需要 API 代理
-  return `https://music.163.com/song/media/outer/url?id=${id}.mp3`;
+/**
+ * 获取音频 URL
+ * 优先级：备用源 (酷狗/咪咕) -> 网易云 API -> 抛出错误 (切歌)
+ * 
+ * @param id 歌曲 ID
+ * @param songName 歌曲名 (用于备用源搜索)
+ * @param artistName 歌手名 (用于备用源搜索)
+ * @returns 播放 URL，如果都失败则抛出错误
+ */
+export const getAudioUrl = async (
+  id: number,
+  songName?: string,
+  artistName?: string
+): Promise<string> => {
+
+  // 1. 首先尝试备用源 (UnblockNeteaseMusic 风格)
+  if (songName && artistName) {
+    try {
+      console.log('[Audio] Trying alternative sources first...');
+      const { getAlternativeUrl } = await import('./alternativeMusicSource');
+      const altUrl = await getAlternativeUrl(songName, artistName);
+
+      if (altUrl) {
+        console.log('[Audio] ✓ Found on alternative source!');
+        return altUrl;
+      }
+      console.log('[Audio] Alternative sources returned no result');
+    } catch (altError) {
+      console.warn('[Audio] Alternative source error:', altError);
+    }
+  }
+
+  // 2. 备用源失败，尝试网易云 API
+  try {
+    console.log('[Audio] Trying NetEase API...');
+    const data = await fetchWithFailover(`/song/url?id=${id}&br=320000&cookie=os%3Dandroid`, 'playlist');
+
+    if (data?.data?.[0]?.url) {
+      console.log('[Audio] ✓ Got URL from NetEase API');
+      return data.data[0].url;
+    }
+
+    // 检查是否是 VIP 歌曲
+    const fee = data?.data?.[0]?.fee;
+    if (fee === 1) {
+      console.warn('[Audio] VIP song, API returned no URL');
+    }
+  } catch (e) {
+    console.warn('[Audio] NetEase API failed:', e);
+  }
+
+  // 3. 都失败了，抛出错误触发切歌
+  console.error('[Audio] ✗ All sources failed, throwing error to skip song');
+  throw new Error('无法获取播放链接，将切换到下一首');
 };
 
 const parseLrc = (lrc: string): { time: number; text: string }[] => {

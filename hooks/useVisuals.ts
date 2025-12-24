@@ -99,62 +99,61 @@ export function useVisuals(currentTrack: Track | undefined) {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        // Draw image to small canvas
-        canvas.width = 50;
-        canvas.height = 50;
-        ctx.drawImage(img, 0, 0, 50, 50);
+        // Draw image to smaller canvas (32x32 = 1024 pixels is enough for color sampling)
+        canvas.width = 32;
+        canvas.height = 32;
+        ctx.drawImage(img, 0, 0, 32, 32);
 
-        // Smart Sampling: Grid Scan + Vibrancy Score
+        // PERFORMANCE: Single getImageData call
+        const imageData = ctx.getImageData(0, 0, 32, 32).data;
+
+        // Coarser grid (step 5 = ~36 sample points) - much faster, still good quality
         const samples: { r: number, g: number, b: number, score: number }[] = [];
 
-        // PERFORMANCE FIX: Batch Readback
-        // Read entire canvas data ONCE to avoid multiple GPU-CPU syncs (144 calls -> 1 call)
-        const imageData = ctx.getImageData(0, 0, 50, 50).data;
-
-        // Scan a finer grid (step 4 = ~144 points) - avoiding edges (4px padding)
-        for (let y = 4; y < 46; y += 4) {
-          for (let x = 4; x < 46; x += 4) {
-            // Calculate index in the 1D array: (y * width + x) * 4
-            const i = (y * 50 + x) * 4;
-
+        for (let y = 3; y < 29; y += 5) {
+          for (let x = 3; x < 29; x += 5) {
+            const i = (y * 32 + x) * 4;
             const r = imageData[i];
             const g = imageData[i + 1];
             const b = imageData[i + 2];
 
-            // Calculate simple vibrancy score: Saturation + Brightness
+            // Fast vibrancy score calculation
             const max = Math.max(r, g, b);
             const min = Math.min(r, g, b);
-            const l = (max + min) / 2;
-            const s = max === min ? 0 : (l > 127 ? (max - min) / (510 - max - min) : (max - min) / (max + min));
+            const l = (max + min) >> 1; // Bit shift for fast divide by 2
+            const delta = max - min;
+            const s = delta === 0 ? 0 : delta / (255 - Math.abs(2 * l - 255));
 
-            // Score favors high saturation HEAVILY. 
-            // We want to catch that one tiny red pixel in a black album.
-            let score = s * 5 + (l / 255) * 0.2;
-
-            // Penalty for extreme whites/blacks to allow colors to surface
-            if (l > 250) score -= 3;
-            if (l < 15) score -= 1;
+            // Score: favor saturation, penalize extremes
+            let score = s * 5 + l * 0.001;
+            if (l > 250 || l < 15) score -= 2;
 
             samples.push({ r, g, b, score });
           }
         }
 
-        // Sort by score
+        // Sort by score (only ~36 items, very fast)
         samples.sort((a, b) => b.score - a.score);
 
-        // Select distinct colors (LOWER threshold to allow gradients/shades)
+        // Select distinct colors using SQUARED distance (avoid expensive sqrt)
+        const DIST_THRESHOLD_SQ = 45 * 45; // 2025
         const distinct: { r: number, g: number, b: number }[] = [];
+
         for (const s of samples) {
-          const isDistinct = distinct.every(d => {
+          let isDistinct = true;
+          for (const d of distinct) {
             const dr = d.r - s.r;
             const dg = d.g - s.g;
             const db = d.b - s.b;
-            return Math.sqrt(dr * dr + dg * dg + db * db) > 45; // Increased threshold for High Contrast (Apple Music Style)
-          });
+            if (dr * dr + dg * dg + db * db <= DIST_THRESHOLD_SQ) {
+              isDistinct = false;
+              break; // Early exit
+            }
+          }
           if (isDistinct) {
             distinct.push(s);
+            if (distinct.length >= 12) break;
           }
-          if (distinct.length >= 12) break; // Increased Cap to 12
         }
 
         // If we don't have enough, fill with default

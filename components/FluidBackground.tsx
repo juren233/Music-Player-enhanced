@@ -81,11 +81,11 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
     const s4 = 1.0 + Math.random() * 0.3;  // 1.0-1.3
     const s5 = 0.75 + Math.random() * 0.35; // 0.75-1.1
 
-    // CURVED PATH KEYFRAMES with opacity fade in/out
+    // CURVED PATH KEYFRAMES with opacity fade in/out for natural appearance
     const keyframes = [
         {
             transform: `translate3d(0, 0, 0) scale(${s1}) rotate(0deg)`,
-            opacity: 0, // Fade in
+            opacity: 0,
             offset: 0
         },
         {
@@ -115,7 +115,7 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
         },
         {
             transform: `translate3d(${totalMoveX}vw, ${totalMoveY}vh, 0) scale(${s1}) rotate(${Math.random() * 360}deg)`,
-            opacity: 0, // Fade out
+            opacity: 0,
             offset: 1
         }
     ];
@@ -131,8 +131,8 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
 
 // --- MAIN COMPONENT ---
 export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgPalette, extractedColors, isDarkMode }) => {
-    // MORE BLOBS = More instances of same color from different directions
-    const BLOB_COUNT = 18;
+    // BLOB COUNT - More instances for color variety
+    const BLOB_COUNT = 16;
 
     const layerARef = useRef<HTMLDivElement>(null);
     const layerBRef = useRef<HTMLDivElement>(null);
@@ -146,15 +146,18 @@ export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgP
         return c1 === '#555' || c1 === '#FF5733' || c1 === '#3357FF';
     }, [extractedColors]);
 
-    if (extractedColors && extractedColors.length > 0) {
-        if (!isFallback) {
-            globalColorCache = extractedColors;
-        } else if (globalColorCache.length === 0) {
-            globalColorCache = extractedColors;
+    // Update global cache in useEffect, not during render
+    useEffect(() => {
+        if (extractedColors && extractedColors.length > 0) {
+            if (!isFallback) {
+                globalColorCache = extractedColors;
+            } else if (globalColorCache.length === 0) {
+                globalColorCache = extractedColors;
+            }
+        } else if (globalColorCache.length === 0 && bgPalette) {
+            globalColorCache = Object.values(bgPalette);
         }
-    } else if (globalColorCache.length === 0 && bgPalette) {
-        globalColorCache = Object.values(bgPalette);
-    }
+    }, [extractedColors, bgPalette, isFallback]);
 
     const targetColors = React.useMemo(() => {
         const resolved = (extractedColors && extractedColors.length > 0 && !isFallback)
@@ -254,7 +257,7 @@ export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgP
                     className="absolute inset-0"
                     style={{
                         transform: 'translateZ(0)',
-                        filter: 'blur(120px) saturate(0.65)'
+                        filter: 'blur(90px) saturate(0.65)'
                     }}
                 >
                     {/* Layer A */}

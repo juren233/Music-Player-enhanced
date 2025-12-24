@@ -319,7 +319,9 @@ const App: React.FC = () => {
                 if (currentTrack.sourceUrl) {
                     url = currentTrack.sourceUrl;
                 } else {
-                    url = await getAudioUrl(currentTrack.id);
+                    // 传入歌曲名和歌手名，以便 VIP 歌曲可以搜索备用源
+                    const artistNames = currentTrack.ar.map(a => a.name).join(' ');
+                    url = await getAudioUrl(currentTrack.id, currentTrack.name, artistNames);
                 }
 
                 if (!isMounted || loadingTrackRef.current !== currentTrack.id) return;

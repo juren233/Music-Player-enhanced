@@ -44,7 +44,19 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
 
         // PERFORMANCE: Write Layout (Batch Write)
         childrenStates.forEach(({ child, distance, i }) => {
-            // Optimize: If completely off screen (far away), set static style to avoid calculation
+            // OPTIMIZATION 1: Hide past lyrics when not scrolling (reduce render)
+            if (!isScrolling && i < activeIdx) {
+                child.style.transform = `scale(0.88)`;
+                child.style.filter = `blur(0px)`;
+                child.style.opacity = `0`;
+                child.style.visibility = 'hidden';
+                return;
+            }
+
+            // Show element if it was hidden
+            child.style.visibility = 'visible';
+
+            // If completely off screen, use static minimal style
             if (distance > containerRect.height) {
                 child.style.transform = `scale(0.88)`;
                 child.style.filter = `blur(0px)`;
@@ -52,7 +64,17 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
                 return;
             }
 
-            let isActiveForce = (!isScrolling && i === activeIdx);
+            // OPTIMIZATION 2: No blur when user is scrolling
+            if (isScrolling) {
+                // Simplified style during scroll (no blur, just opacity based on distance)
+                const intensity = Math.min(distance / activeZone, 1);
+                child.style.transform = `scale(1)`;
+                child.style.filter = `blur(0px)`;
+                child.style.opacity = `${1 - intensity * 0.5}`;
+                return;
+            }
+
+            let isActiveForce = (i === activeIdx);
 
             if (isActiveForce) {
                 child.style.transform = `scale(1)`;
@@ -61,7 +83,7 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
             } else {
                 // Smoother Apple-style easing curve
                 let intensity = Math.min(distance / activeZone, 1);
-                intensity = Math.pow(intensity, 1.5); // Smoother ease
+                intensity = Math.pow(intensity, 1.5);
 
                 const scale = 1 - (intensity * 0.12);
                 const blur = (intensity * 3).toFixed(1);
@@ -74,41 +96,61 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
         });
     }, []);
 
-    // Animation Loop for Visuals
-    useEffect(() => {
-        let frameId: number;
-        const loop = () => {
+    // PERFORMANCE: Update visuals only on scroll or activeIndex change (not every frame!)
+    // Debounced scroll update
+    const scrollRAFRef = useRef<number | null>(null);
+
+    const triggerVisualUpdate = useCallback(() => {
+        if (scrollRAFRef.current) return; // Already pending
+        scrollRAFRef.current = requestAnimationFrame(() => {
             updateLyricVisuals();
-            frameId = requestAnimationFrame(loop);
-        };
-        loop();
-        return () => cancelAnimationFrame(frameId);
+            scrollRAFRef.current = null;
+        });
     }, [updateLyricVisuals]);
+
+    // Update on activeIndex change
+    useEffect(() => {
+        updateLyricVisuals();
+    }, [activeIndex, updateLyricVisuals]);
 
     // Auto-scroll logic
     const isAutoScrolling = useRef(false);
+    const autoScrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         // Trigger scroll immediately when active index changes, unless user is scrolling
         if (!isUserScrollingRef.current && lyricsContainerRef.current && activeIndex !== -1) {
             const el = lyricsContainerRef.current.children[activeIndex] as HTMLElement;
             if (el) {
+                // Clear any existing timeout
+                if (autoScrollTimeout.current) clearTimeout(autoScrollTimeout.current);
+
                 isAutoScrolling.current = true;
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                // Keep isAutoScrolling true for 500ms to cover entire smooth scroll
+                autoScrollTimeout.current = setTimeout(() => {
+                    isAutoScrolling.current = false;
+                }, 500);
             }
         }
     }, [activeIndex]);
 
     const handleLyricsScroll = () => {
+        // IMPORTANT: Skip all scroll logic if this is auto-scroll
         if (isAutoScrolling.current) {
-            isAutoScrolling.current = false;
-            return;
+            return; // Don't trigger user scroll logic for auto-scroll
         }
+
+        // Only for USER scroll: trigger visual update and set scrolling state
+        triggerVisualUpdate();
         isUserScrollingRef.current = true;
         if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
         userScrollTimeout.current = setTimeout(() => {
             isUserScrollingRef.current = false;
-        }, 3000); // Resume auto-scroll after 3s delay
+            // Trigger visual update to restore blur and hide past lyrics
+            updateLyricVisuals();
+        }, 3000);
     };
 
     const lyricInactiveColor = isDarkMode ? 'text-white/35' : 'text-slate-400';
