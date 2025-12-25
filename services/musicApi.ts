@@ -415,37 +415,41 @@ export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'tim
 
 /**
  * 获取音频 URL
- * 优先级：备用源 (酷狗/咪咕) -> 网易云 API -> 抛出错误 (切歌)
+ * 优先级：VIP歌曲先尝试酷狗 -> 网易云 API -> 抛出错误(切歌)
  * 
  * @param id 歌曲 ID
  * @param songName 歌曲名 (用于备用源搜索)
  * @param artistName 歌手名 (用于备用源搜索)
+ * @param fee 歌曲费用类型 (1=VIP)
  * @returns 播放 URL，如果都失败则抛出错误
  */
 export const getAudioUrl = async (
   id: number,
   songName?: string,
-  artistName?: string
+  artistName?: string,
+  fee?: number
 ): Promise<string> => {
+  // VIP 歌曲判断：fee=1 表示 VIP
+  const isVipSong = fee === 1;
 
-  // 1. 首先尝试备用源 (UnblockNeteaseMusic 风格)
-  if (songName && artistName) {
+  // 1. VIP 歌曲优先使用酷狗源
+  if (isVipSong && songName && artistName) {
+    console.log('[Audio] VIP song (fee=1), trying Kugou first...');
     try {
-      console.log('[Audio] Trying alternative sources first...');
       const { getAlternativeUrl } = await import('./alternativeMusicSource');
       const altUrl = await getAlternativeUrl(songName, artistName);
 
       if (altUrl) {
-        console.log('[Audio] ✓ Found on alternative source!');
+        console.log('[Audio] ✓ Found on Kugou!');
         return altUrl;
       }
-      console.log('[Audio] Alternative sources returned no result');
+      console.log('[Audio] Kugou returned no result, falling back to NetEase');
     } catch (altError) {
-      console.warn('[Audio] Alternative source error:', altError);
+      console.warn('[Audio] Kugou error:', altError);
     }
   }
 
-  // 2. 备用源失败，尝试网易云 API
+  // 2. 非 VIP 歌曲或酷狗失败，尝试网易云 API
   try {
     console.log('[Audio] Trying NetEase API...');
     const data = await fetchWithFailover(`/song/url?id=${id}&br=320000&cookie=os%3Dandroid`, 'playlist');
@@ -453,12 +457,6 @@ export const getAudioUrl = async (
     if (data?.data?.[0]?.url) {
       console.log('[Audio] ✓ Got URL from NetEase API');
       return data.data[0].url;
-    }
-
-    // 检查是否是 VIP 歌曲
-    const fee = data?.data?.[0]?.fee;
-    if (fee === 1) {
-      console.warn('[Audio] VIP song, API returned no URL');
     }
   } catch (e) {
     console.warn('[Audio] NetEase API failed:', e);

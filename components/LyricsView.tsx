@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useCallback } from 'react';
 import { LyricLine, Track } from '../types';
-import { Disc } from 'lucide-react';
+import { Disc, Loader2 } from 'lucide-react';
 
 interface LyricsViewProps {
     lyrics: LyricLine[];
@@ -10,10 +10,11 @@ interface LyricsViewProps {
     handleSeek: (ms: number) => void;
     isDarkMode: boolean;
     currentTrack: Track | undefined;
+    isLoading?: boolean;
 }
 
 export const LyricsView: React.FC<LyricsViewProps> = ({
-    lyrics, currentTime, activeIndex, handleSeek, isDarkMode, currentTrack
+    lyrics, currentTime, activeIndex, handleSeek, isDarkMode, currentTrack, isLoading
 }) => {
     const lyricsContainerRef = useRef<HTMLDivElement>(null);
     const isUserScrollingRef = useRef(false);
@@ -158,75 +159,79 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
 
     return (
         <div className="flex-1 h-full relative overflow-hidden lg:mr-6 flex flex-col min-h-0">
-            <div
-                ref={lyricsContainerRef}
-                onScroll={handleLyricsScroll}
-                className="flex-1 overflow-y-auto no-scrollbar py-[50vh] px-6 lg:px-4 text-left lyric-mask will-change-transform"
-            >
-                {lyrics.length > 0 ? lyrics.map((line, i) => {
-                    const isActive = i === activeIndex;
+            {lyrics.length > 0 ? (
+                <div
+                    ref={lyricsContainerRef}
+                    onScroll={handleLyricsScroll}
+                    className="flex-1 overflow-y-auto no-scrollbar py-[50vh] px-6 lg:px-4 text-left lyric-mask will-change-transform"
+                >
+                    {lyrics.map((line, i) => {
+                        const isActive = i === activeIndex;
 
-                    // Apple Music style: much larger active lyrics
-                    const textClass = isActive
-                        ? "font-black text-[2rem] lg:text-[3.5rem] tracking-tight leading-[1.15]"
-                        : `font-bold text-xl lg:text-3xl tracking-tight ${lyricInactiveColor}`;
+                        // Apple Music style: much larger active lyrics
+                        const textClass = isActive
+                            ? "font-black text-[2rem] lg:text-[3.5rem] tracking-tight leading-[1.15]"
+                            : `font-bold text-xl lg:text-3xl tracking-tight ${lyricInactiveColor}`;
 
-                    const renderActiveContent = () => {
-                        const progress = currentTime < line.time ? 0 :
-                            currentTime > line.time + line.duration ? 1 :
-                                (currentTime - line.time) / line.duration;
+                        const renderActiveContent = () => {
+                            const progress = currentTime < line.time ? 0 :
+                                currentTime > line.time + line.duration ? 1 :
+                                    (currentTime - line.time) / line.duration;
 
-                        // Apple Music karaoke reveal effect
-                        return (
-                            <span className="relative inline-block">
-                                <span
-                                    className="absolute inset-0 text-transparent bg-clip-text"
-                                    style={{
-                                        backgroundImage: `linear-gradient(to right, ${isDarkMode ? '#fff' : '#1d1d1f'} ${progress * 100}%, transparent ${progress * 100}%)`,
-                                        WebkitBackgroundClip: 'text'
-                                    }}
-                                >
-                                    {line.text}
+                            // Apple Music karaoke reveal effect
+                            return (
+                                <span className="relative inline-block">
+                                    <span
+                                        className="absolute inset-0 text-transparent bg-clip-text"
+                                        style={{
+                                            backgroundImage: `linear-gradient(to right, ${isDarkMode ? '#fff' : '#1d1d1f'} ${progress * 100}%, transparent ${progress * 100}%)`,
+                                            WebkitBackgroundClip: 'text'
+                                        }}
+                                    >
+                                        {line.text}
+                                    </span>
+                                    <span className={isDarkMode ? 'text-white/20' : 'text-black/15'}>{line.text}</span>
                                 </span>
-                                <span className={isDarkMode ? 'text-white/20' : 'text-black/15'}>{line.text}</span>
-                            </span>
-                        );
-                    };
+                            );
+                        };
 
-                    return (
-                        <div
-                            key={i}
-                            onClick={() => handleSeek(line.time)}
-                            className={`mb-6 lg:mb-8 cursor-pointer transition-all duration-500 origin-left ${textClass} ${lyricTransitionClass} hover:opacity-80`}
-                        >
-                            {isActive ? renderActiveContent() : line.text}
-                            {line.trans && isActive && (
-                                <div className={`text-lg lg:text-2xl font-medium mt-3 opacity-70 tracking-normal ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
-                                    {line.trans}
-                                </div>
-                            )}
-                            {line.trans && !isActive && (
-                                <div className={`text-sm lg:text-lg font-medium mt-1.5 opacity-35 tracking-normal ${isDarkMode ? 'text-white/30' : 'text-slate-400'}`}>
-                                    {line.trans}
-                                </div>
-                            )}
+                        return (
+                            <div
+                                key={i}
+                                onClick={() => handleSeek(line.time)}
+                                className={`mb-6 lg:mb-8 cursor-pointer transition-all duration-500 origin-left ${textClass} ${lyricTransitionClass} hover:opacity-80`}
+                            >
+                                {isActive ? renderActiveContent() : line.text}
+                                {line.trans && isActive && (
+                                    <div className={`text-lg lg:text-2xl font-medium mt-3 opacity-70 tracking-normal ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
+                                        {line.trans}
+                                    </div>
+                                )}
+                                {line.trans && !isActive && (
+                                    <div className={`text-sm lg:text-lg font-medium mt-1.5 opacity-35 tracking-normal ${isDarkMode ? 'text-white/30' : 'text-slate-400'}`}>
+                                        {line.trans}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="flex-1 flex items-center justify-center">
+                    {currentTrack?.sourceUrl ? (
+                        <div className="text-xl font-semibold tracking-tight opacity-30">本地音乐</div>
+                    ) : isLoading ? (
+                        <Loader2 className={`w-12 h-12 animate-spin ${isDarkMode ? 'text-white/70' : 'text-black/70'}`} />
+                    ) : (
+                        <div className="opacity-30 text-center">
+                            <Disc className="w-16 h-16 mb-4 animate-spin-slow mx-auto" />
+                            <p className="text-lg font-medium">纯音乐，请欣赏</p>
                         </div>
-                    );
-                }) : (
-                    <div className="h-full flex flex-col items-center justify-center opacity-30">
-                        {currentTrack?.sourceUrl ? (
-                            <div className="text-xl font-semibold tracking-tight">本地音乐</div>
-                        ) : (
-                            <>
-                                <Disc className="w-16 h-16 mb-4 animate-spin-slow" />
-                                <p className="text-lg font-medium">纯音乐，请欣赏</p>
-                            </>
-                        )}
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
+            )}
 
             <div className="h-10 w-full shrink-0" />
-        </div>
+        </div >
     );
 };

@@ -156,7 +156,7 @@ const initializeBlobPhysics = (blob: HTMLDivElement, index: number, color: strin
 // --- MAIN COMPONENT ---
 export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgPalette, extractedColors, isDarkMode }) => {
     // BLOB COUNT - More instances for color variety
-    const BLOB_COUNT = 10;
+    const BLOB_COUNT = 8;
 
     const layerARef = useRef<HTMLDivElement>(null);
     const layerBRef = useRef<HTMLDivElement>(null);
@@ -320,7 +320,7 @@ export const FluidBackground: React.FC<FluidBackgroundProps> = React.memo(({ bgP
                     className="absolute inset-0"
                     style={{
                         transform: 'translateZ(0)',
-                        filter: 'blur(80px) saturate(0.65)'
+                        filter: 'blur(70px) saturate(0.65)'
                     }}
                 >
                     {/* Layer A */}

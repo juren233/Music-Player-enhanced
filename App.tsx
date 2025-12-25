@@ -70,6 +70,7 @@ const App: React.FC = () => {
 
     // View State
     const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+    const [isLyricsLoading, setIsLyricsLoading] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [isRefreshingComments, setIsRefreshingComments] = useState(false);
 
@@ -310,6 +311,7 @@ const App: React.FC = () => {
 
         const loadTrack = async () => {
             setLyrics([]);
+            setIsLyricsLoading(true);
             setComments([]);
             setPlayError(null);
 
@@ -321,7 +323,7 @@ const App: React.FC = () => {
                 } else {
                     // 传入歌曲名和歌手名，以便 VIP 歌曲可以搜索备用源
                     const artistNames = currentTrack.ar.map(a => a.name).join(' ');
-                    url = await getAudioUrl(currentTrack.id, currentTrack.name, artistNames);
+                    url = await getAudioUrl(currentTrack.id, currentTrack.name, artistNames, currentTrack.fee);
                 }
 
                 if (!isMounted || loadingTrackRef.current !== currentTrack.id) return;
@@ -344,8 +346,11 @@ const App: React.FC = () => {
             // Only fetch metadata for non-local tracks (local tracks have negative IDs)
             if (!currentTrack.sourceUrl && currentTrack.id > 0) {
                 fetchLyrics(currentTrack.id).then(data => {
-                    if (isMounted && loadingTrackRef.current === currentTrack.id) setLyrics(data);
-                }).catch(() => { });
+                    if (isMounted && loadingTrackRef.current === currentTrack.id) {
+                        setLyrics(data);
+                        setIsLyricsLoading(false);
+                    }
+                }).catch(() => { setIsLyricsLoading(false); });
 
                 fetchComments(currentTrack.id).then(data => {
                     if (isMounted && loadingTrackRef.current === currentTrack.id) setComments(data);
@@ -594,6 +599,7 @@ const App: React.FC = () => {
                     handleSeek={handleSeek}
                     isDarkMode={isDarkMode}
                     currentTrack={currentTrack}
+                    isLoading={isLyricsLoading}
                 />
             </div>
 

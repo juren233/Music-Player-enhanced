@@ -1,8 +1,9 @@
 
 import React, { useRef, useEffect, useState } from 'react';
-import { ArrowLeft, User as UserIcon, Grid, Mic2, ListMusic, Settings, Search, X, Flame, Calendar, Play, RefreshCw } from 'lucide-react';
+import { ArrowLeft, User as UserIcon, Grid, Mic2, ListMusic, Settings, Search, X, Flame, Calendar, Play, RefreshCw, Music, Phone, QrCode, LogOut, Check, Loader2 } from 'lucide-react';
 import { RecommendedPlaylist, Track, Artist } from '../types';
 import { getModuleApiNodes, resetModuleApiNode, refreshModuleApiNode, API_MODULE_NAMES, ApiModule } from '../services/musicApi';
+import { isLoggedIn, getLoginInfo, logout, sendCaptcha, loginWithPhone, getQrKey, createQrCode, checkQrStatus, getUserVipInfo, KugouUserInfo } from '../services/kugouApi';
 
 export type SearchType = 'playlist' | 'song' | 'artist';
 export type ViewType = 'recommend' | 'queue' | 'artist';
@@ -73,6 +74,23 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     const [moduleNodes, setModuleNodes] = useState(getModuleApiNodes());
     const [refreshingModule, setRefreshingModule] = useState<ApiModule | null>(null);
 
+    // 酷狗设置相关状态
+    const [showKugouSubMenu, setShowKugouSubMenu] = useState(false);
+    const [kugouLoginMode, setKugouLoginMode] = useState<'phone' | 'qr' | null>(null);
+    const [kugouPhone, setKugouPhone] = useState('');
+    const [kugouCode, setKugouCode] = useState('');
+    const [kugouCodeSending, setKugouCodeSending] = useState(false);
+    const [kugouCodeSent, setKugouCodeSent] = useState(false);
+    const [kugouLoggingIn, setKugouLoggingIn] = useState(false);
+    const [kugouLoginError, setKugouLoginError] = useState('');
+    const [kugouQrKey, setKugouQrKey] = useState('');
+    const [kugouQrImg, setKugouQrImg] = useState('');
+    const [kugouQrStatus, setKugouQrStatus] = useState('');
+    const [kugouQrChecking, setKugouQrChecking] = useState(false);
+    const [kugouUserInfo, setKugouUserInfo] = useState<KugouUserInfo | null>(() => getLoginInfo());
+    const [kugouVipInfo, setKugouVipInfo] = useState<{ isVip: boolean; vipType: number } | null>(null);
+    const qrCheckIntervalRef = useRef<number | null>(null);
+
     // 打开设置面板（记录按钮位置用于动画原点）
     const openSettings = () => {
         if (settingsButtonRef.current) {
@@ -112,10 +130,17 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     // 关闭设置面板（带动画）
     const closeSettings = () => {
         setSettingsClosing(true);
+        // 清除二维码轮询
+        if (qrCheckIntervalRef.current) {
+            clearInterval(qrCheckIntervalRef.current);
+            qrCheckIntervalRef.current = null;
+        }
         setTimeout(() => {
             setShowSettings(false);
             setSettingsClosing(false);
             setShowApiSubMenu(false);
+            setShowKugouSubMenu(false);
+            setKugouLoginMode(null);
         }, 250);
     };
 
@@ -641,6 +666,25 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                                     </div>
                                     <ArrowLeft className={`w-4 h-4 rotate-180 ${textTertiary}`} />
                                 </button>
+
+                                {/* 酷狗备用源设置入口 */}
+                                <button
+                                    onClick={() => setShowKugouSubMenu(true)}
+                                    className={`w-full p-4 rounded-xl flex items-center justify-between ${isDarkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-black/5 hover:bg-black/10'} transition-colors`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-orange-500/20' : 'bg-orange-500/10'}`}>
+                                            <Music className="w-4 h-4 text-orange-500" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className={`text-sm font-medium ${textPrimary}`}>酷狗备用源设置</div>
+                                            <div className={`text-xs ${textTertiary} mt-0.5`}>
+                                                {kugouUserInfo ? `已登录: ${kugouUserInfo.nickname || '用户'}` : '未登录，登录后可播放VIP歌曲'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <ArrowLeft className={`w-4 h-4 rotate-180 ${textTertiary}`} />
+                                </button>
                             </div>
                         </div>
 
@@ -696,6 +740,350 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                                 >
                                     {refreshingModule ? '测速中...' : '刷新所有模块'}
                                 </button>
+                            </div>
+                        </div>
+
+                        {/* 酷狗子菜单页面 */}
+                        <div
+                            className={`absolute inset-0 flex flex-col transition-transform duration-300 ${showKugouSubMenu ? 'translate-x-0' : 'translate-x-full'} ${isDarkMode ? 'bg-[#1c1c1e]' : 'bg-white'}`}
+                        >
+                            {/* 酷狗标题栏 */}
+                            <div className={`flex-shrink-0 flex items-center px-4 py-4 border-b ${isDarkMode ? 'border-white/10' : 'border-black/10'}`}>
+                                <button
+                                    onClick={() => {
+                                        if (kugouLoginMode) {
+                                            setKugouLoginMode(null);
+                                            setKugouLoginError('');
+                                            if (qrCheckIntervalRef.current) {
+                                                clearInterval(qrCheckIntervalRef.current);
+                                                qrCheckIntervalRef.current = null;
+                                            }
+                                        } else {
+                                            setShowKugouSubMenu(false);
+                                        }
+                                    }}
+                                    className={`p-1.5 rounded-full ${itemHover} mr-2`}
+                                >
+                                    <ArrowLeft className="w-5 h-5" />
+                                </button>
+                                <h2 className={`text-lg font-semibold ${textPrimary}`}>
+                                    {kugouLoginMode === 'phone' ? '手机验证码登录' : kugouLoginMode === 'qr' ? '扫码登录' : '酷狗备用源设置'}
+                                </h2>
+                            </div>
+
+                            {/* 酷狗内容区域 */}
+                            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" style={{ scrollbarWidth: 'none' }}>
+                                {!kugouLoginMode ? (
+                                    /* 主菜单 */
+                                    <>
+                                        {/* 登录状态 */}
+                                        <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${kugouUserInfo ? 'bg-green-500/20' : isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}>
+                                                    <UserIcon className={`w-6 h-6 ${kugouUserInfo ? 'text-green-500' : textTertiary}`} />
+                                                </div>
+                                                <div className="flex-1">
+                                                    {kugouUserInfo ? (
+                                                        <>
+                                                            <div className={`text-sm font-medium ${textPrimary}`}>{kugouUserInfo.nickname || '酷狗用户'}</div>
+                                                            <div className={`text-xs ${textTertiary}`}>
+                                                                {kugouVipInfo?.isVip ? '🎵 VIP会员' : '普通用户'}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <div className={`text-sm font-medium ${textPrimary}`}>未登录</div>
+                                                            <div className={`text-xs ${textTertiary}`}>登录后可播放酷狗VIP歌曲</div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                {kugouUserInfo && (
+                                                    <button
+                                                        onClick={() => {
+                                                            logout();
+                                                            setKugouUserInfo(null);
+                                                            setKugouVipInfo(null);
+                                                        }}
+                                                        className={`p-2 rounded-lg ${itemHover}`}
+                                                        title="退出登录"
+                                                    >
+                                                        <LogOut className="w-4 h-4 text-red-500" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* 登录选项 */}
+                                        {!kugouUserInfo && (
+                                            <div className="space-y-3">
+                                                <p className={`text-xs ${textTertiary} px-1`}>选择登录方式</p>
+
+                                                {/* 手机验证码登录 */}
+                                                <button
+                                                    onClick={() => {
+                                                        setKugouLoginMode('phone');
+                                                        setKugouLoginError('');
+                                                        setKugouPhone('');
+                                                        setKugouCode('');
+                                                        setKugouCodeSent(false);
+                                                    }}
+                                                    className={`w-full p-4 rounded-xl flex items-center gap-3 ${isDarkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-black/5 hover:bg-black/10'} transition-colors`}
+                                                >
+                                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-500/10'}`}>
+                                                        <Phone className="w-5 h-5 text-blue-500" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className={`text-sm font-medium ${textPrimary}`}>手机验证码登录</div>
+                                                        <div className={`text-xs ${textTertiary}`}>使用手机号接收验证码</div>
+                                                    </div>
+                                                </button>
+
+                                                {/* 二维码扫码登录 */}
+                                                <button
+                                                    onClick={async () => {
+                                                        setKugouLoginMode('qr');
+                                                        setKugouLoginError('');
+                                                        setKugouQrStatus('正在获取二维码...');
+
+                                                        const keyResult = await getQrKey();
+                                                        if (!keyResult.success || !keyResult.key) {
+                                                            setKugouLoginError('获取二维码失败');
+                                                            return;
+                                                        }
+
+                                                        setKugouQrKey(keyResult.key);
+
+                                                        // getQrKey 直接返回二维码图片，如果没有才调用 createQrCode
+                                                        let qrimg = keyResult.qrimg;
+                                                        if (!qrimg) {
+                                                            const qrResult = await createQrCode(keyResult.key);
+                                                            if (!qrResult.success || !qrResult.qrimg) {
+                                                                setKugouLoginError('生成二维码失败');
+                                                                return;
+                                                            }
+                                                            qrimg = qrResult.qrimg;
+                                                        }
+
+                                                        setKugouQrImg(qrimg);
+                                                        setKugouQrStatus('请使用酷狗App扫描二维码');
+                                                        setKugouQrChecking(true);
+
+                                                        // 开始轮询检查状态
+                                                        qrCheckIntervalRef.current = window.setInterval(async () => {
+                                                            const checkResult = await checkQrStatus(keyResult.key!);
+
+                                                            if (checkResult.status === 0) {
+                                                                setKugouQrStatus('二维码已过期，请重新获取');
+                                                                if (qrCheckIntervalRef.current) {
+                                                                    clearInterval(qrCheckIntervalRef.current);
+                                                                    qrCheckIntervalRef.current = null;
+                                                                }
+                                                                setKugouQrChecking(false);
+                                                            } else if (checkResult.status === 2) {
+                                                                setKugouQrStatus('请在手机上确认登录');
+                                                            } else if (checkResult.status === 4 && checkResult.userInfo) {
+                                                                setKugouUserInfo(checkResult.userInfo);
+                                                                setKugouLoginMode(null);
+                                                                if (qrCheckIntervalRef.current) {
+                                                                    clearInterval(qrCheckIntervalRef.current);
+                                                                    qrCheckIntervalRef.current = null;
+                                                                }
+                                                                setKugouQrChecking(false);
+                                                                // 获取 VIP 信息
+                                                                const vipInfo = await getUserVipInfo();
+                                                                setKugouVipInfo(vipInfo);
+                                                            }
+                                                        }, 2000);
+                                                    }}
+                                                    className={`w-full p-4 rounded-xl flex items-center gap-3 ${isDarkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-black/5 hover:bg-black/10'} transition-colors`}
+                                                >
+                                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-purple-500/20' : 'bg-purple-500/10'}`}>
+                                                        <QrCode className="w-5 h-5 text-purple-500" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className={`text-sm font-medium ${textPrimary}`}>扫码登录</div>
+                                                        <div className={`text-xs ${textTertiary}`}>使用酷狗App扫描二维码</div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* 备用源说明 */}
+                                        <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-orange-500/10' : 'bg-orange-50'}`}>
+                                            <p className={`text-xs ${isDarkMode ? 'text-orange-300' : 'text-orange-600'}`}>
+                                                💡 当网易云遇到VIP歌曲时，会自动从酷狗搜索替代源。登录酷狗VIP账号可获得更多歌曲。
+                                            </p>
+                                        </div>
+                                    </>
+                                ) : kugouLoginMode === 'phone' ? (
+                                    /* 手机验证码登录 */
+                                    <div className="space-y-4">
+                                        {/* 手机号输入 */}
+                                        <div>
+                                            <label className={`text-sm ${textSecondary} block mb-2`}>手机号码</label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="tel"
+                                                    value={kugouPhone}
+                                                    onChange={(e) => setKugouPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                                                    placeholder="请输入手机号"
+                                                    className={`flex-1 px-4 py-3 rounded-xl ${isDarkMode ? 'bg-white/10' : 'bg-black/5'} ${textPrimary} outline-none`}
+                                                />
+                                                <button
+                                                    onClick={async () => {
+                                                        if (kugouPhone.length !== 11) {
+                                                            setKugouLoginError('请输入正确的手机号');
+                                                            return;
+                                                        }
+                                                        setKugouCodeSending(true);
+                                                        setKugouLoginError('');
+                                                        const result = await sendCaptcha(kugouPhone);
+                                                        setKugouCodeSending(false);
+                                                        if (result.success) {
+                                                            setKugouCodeSent(true);
+                                                        } else {
+                                                            setKugouLoginError(result.message);
+                                                        }
+                                                    }}
+                                                    disabled={kugouCodeSending || kugouCodeSent || kugouPhone.length !== 11}
+                                                    className={`px-4 py-3 rounded-xl text-sm font-medium whitespace-nowrap transition-colors ${kugouCodeSent
+                                                        ? 'bg-green-500 text-white'
+                                                        : kugouPhone.length === 11
+                                                            ? 'bg-blue-500 text-white hover:bg-blue-600'
+                                                            : isDarkMode ? 'bg-white/10 text-white/50' : 'bg-black/10 text-black/50'
+                                                        }`}
+                                                >
+                                                    {kugouCodeSending ? <Loader2 className="w-4 h-4 animate-spin" /> : kugouCodeSent ? <Check className="w-4 h-4" /> : '获取验证码'}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* 验证码输入 */}
+                                        <div>
+                                            <label className={`text-sm ${textSecondary} block mb-2`}>验证码</label>
+                                            <input
+                                                type="text"
+                                                value={kugouCode}
+                                                onChange={(e) => setKugouCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                                placeholder="请输入验证码"
+                                                className={`w-full px-4 py-3 rounded-xl ${isDarkMode ? 'bg-white/10' : 'bg-black/5'} ${textPrimary} outline-none`}
+                                            />
+                                        </div>
+
+                                        {/* 错误提示 */}
+                                        {kugouLoginError && (
+                                            <div className="text-red-500 text-sm text-center">{kugouLoginError}</div>
+                                        )}
+
+                                        {/* 登录按钮 */}
+                                        <button
+                                            onClick={async () => {
+                                                if (!kugouPhone || !kugouCode) {
+                                                    setKugouLoginError('请填写手机号和验证码');
+                                                    return;
+                                                }
+                                                setKugouLoggingIn(true);
+                                                setKugouLoginError('');
+                                                const result = await loginWithPhone(kugouPhone, kugouCode);
+                                                setKugouLoggingIn(false);
+                                                if (result.success && result.userInfo) {
+                                                    setKugouUserInfo(result.userInfo);
+                                                    setKugouLoginMode(null);
+                                                    // 获取 VIP 信息
+                                                    const vipInfo = await getUserVipInfo();
+                                                    setKugouVipInfo(vipInfo);
+                                                } else {
+                                                    setKugouLoginError(result.message);
+                                                }
+                                            }}
+                                            disabled={kugouLoggingIn || !kugouPhone || !kugouCode}
+                                            className={`w-full py-3 rounded-xl text-sm font-medium transition-colors ${kugouPhone && kugouCode && !kugouLoggingIn
+                                                ? 'bg-blue-500 text-white hover:bg-blue-600'
+                                                : isDarkMode ? 'bg-white/10 text-white/50' : 'bg-black/10 text-black/50'
+                                                }`}
+                                        >
+                                            {kugouLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '登录'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    /* 二维码扫码登录 */
+                                    <div className="flex flex-col items-center space-y-4 py-4">
+                                        {kugouQrImg ? (
+                                            <div className="p-4 bg-white rounded-2xl">
+                                                <img src={kugouQrImg} alt="登录二维码" className="w-48 h-48" />
+                                            </div>
+                                        ) : (
+                                            <div className={`w-56 h-56 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-white/10' : 'bg-black/5'}`}>
+                                                <Loader2 className={`w-8 h-8 animate-spin ${textTertiary}`} />
+                                            </div>
+                                        )}
+
+                                        <div className={`text-sm ${textSecondary} text-center`}>
+                                            {kugouQrStatus}
+                                        </div>
+
+                                        {kugouLoginError && (
+                                            <div className="text-red-500 text-sm text-center">{kugouLoginError}</div>
+                                        )}
+
+                                        {!kugouQrChecking && kugouQrImg && (
+                                            <button
+                                                onClick={async () => {
+                                                    setKugouQrStatus('正在获取二维码...');
+                                                    setKugouLoginError('');
+
+                                                    const keyResult = await getQrKey();
+                                                    if (!keyResult.success || !keyResult.key) {
+                                                        setKugouLoginError('获取二维码失败');
+                                                        return;
+                                                    }
+
+                                                    setKugouQrKey(keyResult.key);
+
+                                                    const qrResult = await createQrCode(keyResult.key);
+                                                    if (!qrResult.success || !qrResult.qrimg) {
+                                                        setKugouLoginError('生成二维码失败');
+                                                        return;
+                                                    }
+
+                                                    setKugouQrImg(qrResult.qrimg);
+                                                    setKugouQrStatus('请使用酷狗App扫描二维码');
+                                                    setKugouQrChecking(true);
+
+                                                    // 开始轮询检查状态
+                                                    qrCheckIntervalRef.current = window.setInterval(async () => {
+                                                        const checkResult = await checkQrStatus(keyResult.key!);
+
+                                                        if (checkResult.status === 0) {
+                                                            setKugouQrStatus('二维码已过期，请重新获取');
+                                                            if (qrCheckIntervalRef.current) {
+                                                                clearInterval(qrCheckIntervalRef.current);
+                                                                qrCheckIntervalRef.current = null;
+                                                            }
+                                                            setKugouQrChecking(false);
+                                                        } else if (checkResult.status === 2) {
+                                                            setKugouQrStatus('请在手机上确认登录');
+                                                        } else if (checkResult.status === 4 && checkResult.userInfo) {
+                                                            setKugouUserInfo(checkResult.userInfo);
+                                                            setKugouLoginMode(null);
+                                                            if (qrCheckIntervalRef.current) {
+                                                                clearInterval(qrCheckIntervalRef.current);
+                                                                qrCheckIntervalRef.current = null;
+                                                            }
+                                                            setKugouQrChecking(false);
+                                                            // 获取 VIP 信息
+                                                            const vipInfo = await getUserVipInfo();
+                                                            setKugouVipInfo(vipInfo);
+                                                        }
+                                                    }, 2000);
+                                                }}
+                                                className={`px-6 py-2 rounded-xl text-sm font-medium ${isDarkMode ? 'bg-white/10 hover:bg-white/20' : 'bg-black/10 hover:bg-black/20'} transition-colors`}
+                                            >
+                                                刷新二维码
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
