@@ -431,10 +431,22 @@ export const getSongUrl = async (
                 return urlField;
             };
 
+            // 音频代理 URL（解决 HTTPS 站点加载 HTTP 酷狗音频的问题）
+            const AUDIO_PROXY = 'https://proxy.kgmusicapi.win';
+            const wrapWithProxy = (url: string): string => {
+                // 在 HTTPS 环境下，通过代理加载 HTTP 音频
+                if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+                    const proxyUrl = `${AUDIO_PROXY}/?url=${encodeURIComponent(url)}`;
+                    console.log('[Kugou] Using proxy:', proxyUrl);
+                    return proxyUrl;
+                }
+                return url;
+            };
+
             // 尝试 data.data.play_url
             if (data.data?.play_url) {
                 console.log('[Kugou] Got URL:', data.data.play_url);
-                return data.data.play_url;
+                return wrapWithProxy(data.data.play_url);
             }
 
             // 尝试 data.data.url
@@ -442,7 +454,7 @@ export const getSongUrl = async (
                 const url = extractUrl(data.data.url);
                 if (url) {
                     console.log('[Kugou] Got URL:', url);
-                    return url;
+                    return wrapWithProxy(url);
                 }
             }
 
@@ -451,7 +463,7 @@ export const getSongUrl = async (
                 const url = extractUrl(data.url);
                 if (url) {
                     console.log('[Kugou] Got URL:', url);
-                    return url;
+                    return wrapWithProxy(url);
                 }
             }
 
@@ -461,7 +473,7 @@ export const getSongUrl = async (
                 const url = extractUrl(backupUrl);
                 if (url) {
                     console.log('[Kugou] Got URL:', url);
-                    return url;
+                    return wrapWithProxy(url);
                 }
             }
         }
