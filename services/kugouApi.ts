@@ -430,39 +430,49 @@ export const getSongUrl = async (
                 }
                 return urlField;
             };
-
-            // 确保 URL 使用 HTTPS（避免生产环境的混合内容问题）
-            const ensureHttps = (url: string): string => {
-                if (url && url.startsWith('http://')) {
-                    return url.replace('http://', 'https://');
+            // 使用音频代理包装 URL（解决 HTTPS 站点加载 HTTP 音频的问题）
+            const wrapWithProxy = (url: string): string => {
+                // 只有在生产环境（HTTPS）且 URL 是 HTTP 时才使用代理
+                if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+                    const proxyUrl = `${KUGOU_API_BASE}/audio_proxy?url=${encodeURIComponent(url)}`;
+                    console.log('[Kugou] Using proxy for HTTP audio:', proxyUrl);
+                    return proxyUrl;
                 }
                 return url;
             };
 
             // 尝试 data.data.play_url
             if (data.data?.play_url) {
-                const url = ensureHttps(data.data.play_url);
-                console.log('[Kugou] Got URL (ensured HTTPS):', url);
-                return url;
+                console.log('[Kugou] Got URL:', data.data.play_url);
+                return wrapWithProxy(data.data.play_url);
             }
 
             // 尝试 data.data.url
             if (data.data?.url) {
                 const url = extractUrl(data.data.url);
-                if (url) return ensureHttps(url);
+                if (url) {
+                    console.log('[Kugou] Got URL:', url);
+                    return wrapWithProxy(url);
+                }
             }
 
             // URL 可能直接在顶层：data.url
             if (data.url) {
                 const url = extractUrl(data.url);
-                if (url) return ensureHttps(url);
+                if (url) {
+                    console.log('[Kugou] Got URL:', url);
+                    return wrapWithProxy(url);
+                }
             }
 
             // 尝试 backupUrl（可能在 data.data 或顶层）
             const backupUrl = data.data?.backupUrl || data.backupUrl;
             if (backupUrl) {
                 const url = extractUrl(backupUrl);
-                if (url) return ensureHttps(url);
+                if (url) {
+                    console.log('[Kugou] Got URL:', url);
+                    return wrapWithProxy(url);
+                }
             }
         }
 

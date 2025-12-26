@@ -328,12 +328,22 @@ const App: React.FC = () => {
 
                 if (!isMounted || loadingTrackRef.current !== currentTrack.id) return;
 
+                console.log('[AudioLoad] Setting URL:', url);
+                console.log('[AudioLoad] URL protocol:', url.startsWith('https') ? 'HTTPS' : 'HTTP');
+
                 if (audioRef.current) {
                     audioRef.current.src = url;
                     audioRef.current.volume = volume;
                     audioRef.current.load();
+
+                    // 监听 canplay 事件确认加载成功
+                    audioRef.current.oncanplay = () => {
+                        console.log('[AudioLoad] ✓ Audio can play');
+                    };
+
                     if (isPlaying) {
                         audioRef.current.play().catch(e => {
+                            console.error('[AudioLoad] Play failed:', e.name, e.message);
                             if (e.name !== 'NotAllowedError') handlePlayError(e);
                             else setIsPlaying(false);
                         });
