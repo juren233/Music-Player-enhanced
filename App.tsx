@@ -405,6 +405,22 @@ const App: React.FC = () => {
     };
 
     const handleAudioError = (e: React.SyntheticEvent<HTMLAudioElement, Event>) => {
+        // 详细的错误日志，帮助调试生产环境问题
+        const audio = e?.target as HTMLAudioElement;
+        const error = audio?.error;
+        console.error('[Audio Error]', {
+            src: audio?.src,
+            errorCode: error?.code,
+            errorMessage: error?.message,
+            networkState: audio?.networkState,
+            readyState: audio?.readyState
+        });
+
+        // 检查是否是 HTTPS/HTTP 混合内容问题
+        if (audio?.src?.startsWith('http://') && window.location.protocol === 'https:') {
+            console.error('[Audio Error] Mixed content blocked: HTTP audio on HTTPS page');
+        }
+
         handlePlayError("音频加载失败");
     };
 

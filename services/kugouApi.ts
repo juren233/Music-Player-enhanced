@@ -431,28 +431,38 @@ export const getSongUrl = async (
                 return urlField;
             };
 
+            // 确保 URL 使用 HTTPS（避免生产环境的混合内容问题）
+            const ensureHttps = (url: string): string => {
+                if (url && url.startsWith('http://')) {
+                    return url.replace('http://', 'https://');
+                }
+                return url;
+            };
+
             // 尝试 data.data.play_url
             if (data.data?.play_url) {
-                return data.data.play_url;
+                const url = ensureHttps(data.data.play_url);
+                console.log('[Kugou] Got URL (ensured HTTPS):', url);
+                return url;
             }
 
             // 尝试 data.data.url
             if (data.data?.url) {
                 const url = extractUrl(data.data.url);
-                if (url) return url;
+                if (url) return ensureHttps(url);
             }
 
             // URL 可能直接在顶层：data.url
             if (data.url) {
                 const url = extractUrl(data.url);
-                if (url) return url;
+                if (url) return ensureHttps(url);
             }
 
             // 尝试 backupUrl（可能在 data.data 或顶层）
             const backupUrl = data.data?.backupUrl || data.backupUrl;
             if (backupUrl) {
                 const url = extractUrl(backupUrl);
-                if (url) return url;
+                if (url) return ensureHttps(url);
             }
         }
 
