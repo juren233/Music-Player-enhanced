@@ -510,3 +510,215 @@ export interface KugouSearchResult {
     duration?: number;
     mvHash?: string;
 }
+
+// ============ 歌词 ============
+
+/**
+ * 搜索歌词（获取歌词 ID 和 accesskey）
+ * @param hash 歌曲 hash
+ * @param keywords 搜索关键词（可选，如果没有 hash）
+ */
+export const searchLyric = async (
+    hash?: string,
+    keywords?: string
+): Promise<{ id: string; accesskey: string } | null> => {
+    try {
+        let path = '/search/lyric?';
+        if (hash) {
+            path += `hash=${hash}`;
+        } else if (keywords) {
+            path += `keywords=${encodeURIComponent(keywords)}`;
+        } else {
+            return null;
+        }
+
+        console.log('[Kugou Lyrics] Search URL:', `${KUGOU_API_BASE}${path}`);
+        const response = await fetch(`${KUGOU_API_BASE}${path}`);
+        const data = await response.json();
+        console.log('[Kugou Lyrics] Search response:', data);
+
+        // 歌词搜索结果在 candidates 数组中
+        const candidates = data?.candidates || data?.data?.candidates || [];
+        console.log('[Kugou Lyrics] Candidates:', candidates.length);
+
+        if (candidates.length > 0) {
+            const first = candidates[0];
+            console.log('[Kugou Lyrics] First candidate:', first);
+            return {
+                id: first.id,
+                accesskey: first.accesskey
+            };
+        }
+
+        console.log('[Kugou Lyrics] No candidates found');
+        return null;
+    } catch (e) {
+        console.error('[Kugou Lyrics] Search failed:', e);
+        return null;
+    }
+};
+
+/**
+ * 获取歌词内容
+ * @param id 歌词 ID
+ * @param accesskey 访问密钥
+ * @param fmt 格式: 'krc' (逐字) 或 'lrc' (普通)
+ */
+export const getLyric = async (
+    id: string,
+    accesskey: string,
+    fmt: 'krc' | 'lrc' = 'krc'
+): Promise<string | null> => {
+    try {
+        const path = `/lyric?id=${id}&accesskey=${accesskey}&fmt=${fmt}&decode=true`;
+        console.log('[Kugou Lyrics] Get URL:', `${KUGOU_API_BASE}${path}`);
+        const response = await fetch(`${KUGOU_API_BASE}${path}`);
+        const data = await response.json();
+        console.log('[Kugou Lyrics] Get response:', data);
+
+        // 解码后的歌词内容
+        const content = data?.decodeContent || data?.body?.decodeContent;
+        if (content) {
+            console.log('[Kugou Lyrics] Found decodeContent, length:', content.length);
+            return content;
+        }
+
+        // 如果没有解码内容，尝试原始 content
+        const rawContent = data?.content || data?.body?.content;
+        if (rawContent) {
+            console.log('[Kugou Lyrics] Found raw content, trying to decode');
+            // 可能是 base64 编码
+            try {
+                return atob(rawContent);
+            } catch {
+                return rawContent;
+            }
+        }
+
+        console.log('[Kugou Lyrics] No content found in response');
+        return null;
+    } catch (e) {
+        console.error('[Kugou Lyrics] Get failed:', e);
+        return null;
+    }
+};
+
+/**
+ * KRC 逐字歌词的单词时间信息
+ */
+export interface KrcWord {
+    word: string;
+    startTime: number;  // 毫秒
+    duration: number;   // 毫秒
+}
+
+/**
+ * KRC 歌词行
+ */
+export interface KrcLine {
+    time: number;       // 行开始时间（毫秒）
+    duration: number;   // 行持续时间（毫秒）
+    text: string;       // 整行文本
+    words: KrcWord[];   // 逐字时间
+}
+
+/**
+ * 解析 KRC 格式歌词
+ * 实际 KRC 格式: [startMs,durationMs]<offset,wordDuration,0>字<offset,wordDuration,0>字...
+ * 例如: [14407,2359]<0,226,0>想<226,177,0>听<404,209,0>你
+ * 
+ * @param krcContent KRC 歌词内容
+ * @returns 解析后的歌词行数组
+ */
+export const parseKrc = (krcContent: string): KrcLine[] => {
+    const lines: KrcLine[] = [];
+    const krcLines = krcContent.split(/\r?\n/);
+
+    for (const line of krcLines) {
+        // 跳过元数据行（如 [id:xxx], [ar:xxx], [ti:xxx] 等）
+        if (line.match(/^\[[a-z]+:/i)) continue;
+
+        // 匹配行时间: [startMs,durationMs]
+        const lineMatch = line.match(/^\[(\d+),(\d+)\]/);
+        if (!lineMatch) continue;
+
+        const lineTime = parseInt(lineMatch[1], 10);
+        const lineDuration = parseInt(lineMatch[2], 10);
+
+        // 移除行时间标签
+        const content = line.replace(/^\[\d+,\d+\]/, '');
+
+        // 解析逐字时间: <offset,duration,0>字
+        const words: KrcWord[] = [];
+        const wordRegex = /<(\d+),(\d+),\d+>([^<]*)/g;
+        let wordMatch;
+        let fullText = '';
+
+        while ((wordMatch = wordRegex.exec(content)) !== null) {
+            const offset = parseInt(wordMatch[1], 10);
+            const duration = parseInt(wordMatch[2], 10);
+            const word = wordMatch[3];
+
+            if (word) {
+                fullText += word;
+                words.push({
+                    word,
+                    startTime: lineTime + offset,
+                    duration
+                });
+            }
+        }
+
+        // 只添加有歌词内容的行
+        if (words.length > 0 && fullText.trim()) {
+            lines.push({
+                time: lineTime,
+                duration: lineDuration,
+                text: fullText.trim(),
+                words
+            });
+        }
+    }
+
+    console.log('[Kugou KRC] Parsed lines sample:', lines.slice(0, 3));
+    return lines;
+};
+
+/**
+ * 获取酷狗逐字歌词（完整流程）
+ * @param hash 歌曲 hash
+ * @param keywords 搜索关键词（备用）
+ */
+export const getKugouLyrics = async (
+    hash?: string,
+    keywords?: string
+): Promise<KrcLine[] | null> => {
+    try {
+        // 1. 搜索歌词获取 id 和 accesskey
+        const searchResult = await searchLyric(hash, keywords);
+        if (!searchResult) {
+            console.log('[Kugou] No lyric found for hash:', hash);
+            return null;
+        }
+
+        console.log('[Kugou] Found lyric:', searchResult);
+
+        // 2. 获取 KRC 格式歌词
+        const krcContent = await getLyric(searchResult.id, searchResult.accesskey, 'krc');
+        if (!krcContent) {
+            console.log('[Kugou] Failed to get KRC content');
+            return null;
+        }
+
+        console.log('[Kugou] Got KRC content, parsing...');
+
+        // 3. 解析 KRC 格式
+        const parsed = parseKrc(krcContent);
+        console.log('[Kugou] Parsed', parsed.length, 'lyric lines');
+
+        return parsed;
+    } catch (e) {
+        console.error('[Kugou] Get Kugou lyrics failed:', e);
+        return null;
+    }
+};

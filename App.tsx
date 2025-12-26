@@ -317,19 +317,24 @@ const App: React.FC = () => {
 
             try {
                 let url: string;
+                let kugouHash: string | undefined;
+
                 // Check if track has a local source URL (from zip import)
                 if (currentTrack.sourceUrl) {
                     url = currentTrack.sourceUrl;
                 } else {
                     // 传入歌曲名和歌手名，以便 VIP 歌曲可以搜索备用源
                     const artistNames = currentTrack.ar.map(a => a.name).join(' ');
-                    url = await getAudioUrl(currentTrack.id, currentTrack.name, artistNames, currentTrack.fee);
+                    const result = await getAudioUrl(currentTrack.id, currentTrack.name, artistNames, currentTrack.fee);
+                    url = result.url;
+                    kugouHash = result.kugouHash;
                 }
 
                 if (!isMounted || loadingTrackRef.current !== currentTrack.id) return;
 
                 console.log('[AudioLoad] Setting URL:', url);
                 console.log('[AudioLoad] URL protocol:', url.startsWith('https') ? 'HTTPS' : 'HTTP');
+                if (kugouHash) console.log('[AudioLoad] Kugou hash for lyrics:', kugouHash);
 
                 if (audioRef.current) {
                     audioRef.current.src = url;
@@ -349,22 +354,23 @@ const App: React.FC = () => {
                         });
                     }
                 }
+
+                // 获取歌词和评论（非本地歌曲）
+                if (!currentTrack.sourceUrl && currentTrack.id > 0) {
+                    // VIP 歌曲使用酷狗逐字歌词
+                    fetchLyrics(currentTrack.id, kugouHash, currentTrack.name).then(data => {
+                        if (isMounted && loadingTrackRef.current === currentTrack.id) {
+                            setLyrics(data);
+                            setIsLyricsLoading(false);
+                        }
+                    }).catch(() => { setIsLyricsLoading(false); });
+
+                    fetchComments(currentTrack.id).then(data => {
+                        if (isMounted && loadingTrackRef.current === currentTrack.id) setComments(data);
+                    }).catch(() => { });
+                }
             } catch (e) {
                 if (isMounted) handleAudioError(null as any);
-            }
-
-            // Only fetch metadata for non-local tracks (local tracks have negative IDs)
-            if (!currentTrack.sourceUrl && currentTrack.id > 0) {
-                fetchLyrics(currentTrack.id).then(data => {
-                    if (isMounted && loadingTrackRef.current === currentTrack.id) {
-                        setLyrics(data);
-                        setIsLyricsLoading(false);
-                    }
-                }).catch(() => { setIsLyricsLoading(false); });
-
-                fetchComments(currentTrack.id).then(data => {
-                    if (isMounted && loadingTrackRef.current === currentTrack.id) setComments(data);
-                }).catch(() => { });
             }
         };
 

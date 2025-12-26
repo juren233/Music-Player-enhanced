@@ -21,6 +21,7 @@ export interface Track {
   dt: number; // Duration in ms
   fee?: number; // 0: Free, 1: VIP, 4: Paid Album, 8: Sq
   sourceUrl?: string; // URL for local file playback
+  kugouHash?: string; // 酷狗歌曲 hash（VIP 歌曲用于获取逐字歌词）
 }
 
 export interface WordTiming {

@@ -68,12 +68,12 @@ const calculateMatchScore = (
  * 
  * @param songName 歌曲名
  * @param artistName 歌手名
- * @returns 播放 URL 或 null
+ * @returns 包含播放 URL 和 kugouHash 的对象，或 null
  */
 export const getAlternativeUrl = async (
     songName: string,
     artistName: string
-): Promise<string | null> => {
+): Promise<{ url: string; kugouHash: string } | null> => {
     const keyword = `${songName} ${artistName}`;
     const MATCH_THRESHOLD = 0.6; // 匹配度阈值
 
@@ -115,7 +115,7 @@ export const getAlternativeUrl = async (
 
         if (url) {
             console.log('[Kugou] ✓ Got URL successfully');
-            return url;
+            return { url, kugouHash: bestMatch.hash };
         }
 
         console.log('[Kugou] Failed to get URL (may need VIP login)');

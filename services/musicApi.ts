@@ -1,4 +1,5 @@
 import { Track, LyricLine, Comment, RecommendedPlaylist, Artist } from '../types';
+import { getKugouLyrics, KrcLine } from './kugouApi';
 
 // 完整 API 列表（2025年1月更新）
 const API_BASES = [
@@ -421,14 +422,14 @@ export const fetchArtistSongsList = async (artistId: number, order: 'hot' | 'tim
  * @param songName 歌曲名 (用于备用源搜索)
  * @param artistName 歌手名 (用于备用源搜索)
  * @param fee 歌曲费用类型 (1=VIP)
- * @returns 播放 URL，如果都失败则抛出错误
+ * @returns 包含播放 URL 和可选的 kugouHash 的对象，如果都失败则抛出错误
  */
 export const getAudioUrl = async (
   id: number,
   songName?: string,
   artistName?: string,
   fee?: number
-): Promise<string> => {
+): Promise<{ url: string; kugouHash?: string }> => {
   // VIP 歌曲判断：fee=1 表示 VIP
   const isVipSong = fee === 1;
 
@@ -437,11 +438,11 @@ export const getAudioUrl = async (
     console.log('[Audio] VIP song (fee=1), trying Kugou first...');
     try {
       const { getAlternativeUrl } = await import('./alternativeMusicSource');
-      const altUrl = await getAlternativeUrl(songName, artistName);
+      const altResult = await getAlternativeUrl(songName, artistName);
 
-      if (altUrl) {
+      if (altResult) {
         console.log('[Audio] ✓ Found on Kugou!');
-        return altUrl;
+        return { url: altResult.url, kugouHash: altResult.kugouHash };
       }
       console.log('[Audio] Kugou returned no result, falling back to NetEase');
     } catch (altError) {
@@ -456,7 +457,7 @@ export const getAudioUrl = async (
 
     if (data?.data?.[0]?.url) {
       console.log('[Audio] ✓ Got URL from NetEase API');
-      return data.data[0].url;
+      return { url: data.data[0].url };
     }
   } catch (e) {
     console.warn('[Audio] NetEase API failed:', e);
@@ -545,8 +546,60 @@ const parseYrc = (yrc: string): LyricLine[] => {
   return result;
 };
 
-export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
+/**
+ * 获取歌词
+ * @param id 网易云歌曲 ID
+ * @param kugouHash 酷狗歌曲 hash（可选，VIP 歌曲用）
+ * @param songName 歌曲名（可选，用于酷狗歌词搜索备用）
+ */
+export const fetchLyrics = async (
+  id: number,
+  kugouHash?: string,
+  songName?: string
+): Promise<LyricLine[]> => {
   try {
+    // VIP 歌曲优先使用酷狗逐字歌词
+    if (kugouHash) {
+      console.log('[Lyrics] Trying Kugou KRC lyrics for VIP song, hash:', kugouHash);
+      const krcLines = await getKugouLyrics(kugouHash, songName);
+
+      if (krcLines && krcLines.length > 0) {
+        console.log('%c[歌词来源] 酷狗 KRC 逐字歌词', 'color: #00ff00; font-weight: bold', `(${krcLines.length} 行)`);
+
+        // 将 KrcLine 转换为 LyricLine 格式
+        const lyrics: LyricLine[] = krcLines.map(line => ({
+          time: line.time,
+          text: line.text,
+          duration: line.duration,
+          words: line.words.map(w => ({
+            word: w.word,
+            startTime: w.startTime,
+            duration: w.duration
+          })),
+          isContinuation: false
+        }));
+
+        // 尝试从网易云获取翻译歌词
+        try {
+          const neteaseData = await fetchWithFailover(`/lyric?id=${id}`, 'lyrics');
+          const translation = neteaseData.tlyric?.lyric ? parseLrc(neteaseData.tlyric.lyric) : [];
+
+          if (translation.length > 0) {
+            console.log('[Lyrics] Adding NetEase translation to Kugou lyrics');
+            return lyrics.map(line => {
+              const transLine = translation.find(t => Math.abs(t.time - line.time) < 500);
+              return { ...line, trans: transLine?.text };
+            });
+          }
+        } catch (e) {
+          console.log('[Lyrics] Failed to get translation, using Kugou lyrics only');
+        }
+
+        return lyrics;
+      }
+    }
+
+    // 网易云歌词（非 VIP 或酷狗失败时）
     // 优先使用 /lyric/new 获取逐字歌词
     const data = await fetchWithFailover(`/lyric/new?id=${id}`, 'lyrics');
 
@@ -556,6 +609,7 @@ export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
       const yrcLyrics = parseYrc(data.yrc.lyric);
 
       if (yrcLyrics.length > 0) {
+        console.log('%c[歌词来源] 网易云 YRC 逐字歌词', 'color: #00aaff; font-weight: bold', `(${yrcLyrics.length} 行)`);
         // 尝试匹配翻译
         const translation = data.tlyric?.lyric ? parseLrc(data.tlyric.lyric) : [];
 
@@ -570,7 +624,7 @@ export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
     }
 
     // 回退到普通 lrc 歌词
-    console.log('[Lyrics] Using standard lrc lyrics');
+    console.log('%c[歌词来源] 网易云 LRC 普通歌词', 'color: #ffaa00; font-weight: bold');
     const original = data.lrc?.lyric ? parseLrc(data.lrc.lyric) : [];
     const translation = data.tlyric?.lyric ? parseLrc(data.tlyric.lyric) : [];
 
