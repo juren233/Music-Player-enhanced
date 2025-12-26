@@ -178,11 +178,11 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
                             const unfilledColor = isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(30,41,59,0.3)';
 
                             // 如果有逐字时间数据，使用精确的逐字渲染
+                            // Apple Music 风格：柔和的渐变边界滚动效果
                             if (line.words && line.words.length > 0) {
                                 return (
                                     <span>
                                         {line.words.map((wordData, idx) => {
-                                            // 计算当前字的进度 (0-1)
                                             const wordStart = wordData.startTime;
                                             const wordEnd = wordData.startTime + wordData.duration;
 
@@ -193,14 +193,34 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
                                                 wordProgress = (currentTime - wordStart) / wordData.duration;
                                             }
 
+                                            // 颜色设置
+                                            const bright = isDarkMode ? 'rgba(255,255,255,1)' : 'rgba(30,41,59,1)';
+                                            const dim = isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(30,41,59,0.35)';
+
+                                            // 边界处理：完全未唱或完全唱完使用纯色
+                                            if (wordProgress <= 0) {
+                                                return <span key={idx} style={{ color: dim }}>{wordData.word}</span>;
+                                            }
+                                            if (wordProgress >= 1) {
+                                                return <span key={idx} style={{ color: bright }}>{wordData.word}</span>;
+                                            }
+
+                                            // 正在唱：动态调整过渡带宽度，靠近边界时过渡带变窄
+                                            const baseFade = 25;
+                                            const edgeDistance = Math.min(wordProgress, 1 - wordProgress);
+                                            const fadeZone = baseFade * Math.min(1, edgeDistance * 5);
+
+                                            const p = wordProgress * 100;
+                                            const p1 = Math.max(0, p - fadeZone);
+                                            const p2 = Math.min(100, p + fadeZone);
+
                                             return (
                                                 <span
                                                     key={idx}
                                                     className="text-transparent bg-clip-text"
                                                     style={{
-                                                        backgroundImage: `linear-gradient(to right, ${filledColor} ${wordProgress * 100}%, ${unfilledColor} ${wordProgress * 100}%)`,
+                                                        backgroundImage: `linear-gradient(to right, ${bright} ${p1}%, ${dim} ${p2}%)`,
                                                         WebkitBackgroundClip: 'text',
-                                                        transition: 'background-image 0.05s linear'
                                                     }}
                                                 >
                                                     {wordData.word}
