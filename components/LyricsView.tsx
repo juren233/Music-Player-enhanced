@@ -174,23 +174,58 @@ export const LyricsView: React.FC<LyricsViewProps> = ({
                             : `font-bold text-xl lg:text-3xl tracking-tight ${lyricInactiveColor}`;
 
                         const renderActiveContent = () => {
+                            const filledColor = isDarkMode ? 'white' : '#1e293b';
+                            const unfilledColor = isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(30,41,59,0.3)';
+
+                            // 如果有逐字时间数据，使用精确的逐字渲染
+                            if (line.words && line.words.length > 0) {
+                                return (
+                                    <span>
+                                        {line.words.map((wordData, idx) => {
+                                            // 计算当前字的进度 (0-1)
+                                            const wordStart = wordData.startTime;
+                                            const wordEnd = wordData.startTime + wordData.duration;
+
+                                            let wordProgress = 0;
+                                            if (currentTime >= wordEnd) {
+                                                wordProgress = 1;
+                                            } else if (currentTime > wordStart) {
+                                                wordProgress = (currentTime - wordStart) / wordData.duration;
+                                            }
+
+                                            return (
+                                                <span
+                                                    key={idx}
+                                                    className="text-transparent bg-clip-text"
+                                                    style={{
+                                                        backgroundImage: `linear-gradient(to right, ${filledColor} ${wordProgress * 100}%, ${unfilledColor} ${wordProgress * 100}%)`,
+                                                        WebkitBackgroundClip: 'text',
+                                                        transition: 'background-image 0.05s linear'
+                                                    }}
+                                                >
+                                                    {wordData.word}
+                                                </span>
+                                            );
+                                        })}
+                                    </span>
+                                );
+                            }
+
+                            // 回退：使用行级进度的渐变
                             const progress = currentTime < line.time ? 0 :
                                 currentTime > line.time + line.duration ? 1 :
                                     (currentTime - line.time) / line.duration;
 
-                            // Apple Music karaoke reveal effect
                             return (
-                                <span className="relative inline-block">
-                                    <span
-                                        className="absolute inset-0 text-transparent bg-clip-text"
-                                        style={{
-                                            backgroundImage: `linear-gradient(to right, ${isDarkMode ? '#fff' : '#1d1d1f'} ${progress * 100}%, transparent ${progress * 100}%)`,
-                                            WebkitBackgroundClip: 'text'
-                                        }}
-                                    >
-                                        {line.text}
-                                    </span>
-                                    <span className={isDarkMode ? 'text-white/20' : 'text-black/15'}>{line.text}</span>
+                                <span
+                                    className="text-transparent bg-clip-text"
+                                    style={{
+                                        backgroundImage: `linear-gradient(to right, ${filledColor} ${progress * 100}%, ${unfilledColor} ${progress * 100}%)`,
+                                        WebkitBackgroundClip: 'text',
+                                        backgroundSize: '100% 100%'
+                                    }}
+                                >
+                                    {line.text}
                                 </span>
                             );
                         };

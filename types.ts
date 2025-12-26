@@ -23,12 +23,19 @@ export interface Track {
   sourceUrl?: string; // URL for local file playback
 }
 
+export interface WordTiming {
+  word: string;      // 字/词
+  startTime: number; // 开始时间 (ms)
+  duration: number;  // 持续时间 (ms)
+}
+
 export interface LyricLine {
   time: number;
   text: string;
   trans?: string;
   duration: number; // Duration of the line in ms
   isContinuation?: boolean;
+  words?: WordTiming[]; // 逐字时间数据
 }
 
 export interface User {

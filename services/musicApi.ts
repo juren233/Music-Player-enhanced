@@ -489,10 +489,88 @@ const parseLrc = (lrc: string): { time: number; text: string }[] => {
   return result;
 };
 
+// 解析 yrc 逐字歌词格式
+// 格式: [行开始时间,行持续时间]词1(词开始时间,词持续时间,0)词2(词开始时间,词持续时间,0)...
+const parseYrc = (yrc: string): LyricLine[] => {
+  if (!yrc) return [];
+
+  const lines = yrc.split('\n');
+  const result: LyricLine[] = [];
+
+  // 匹配行时间戳: [开始时间,持续时间]
+  const lineTimeRegex = /^\[(\d+),(\d+)\]/;
+  // 匹配逐字: (开始时间,持续时间,0)
+  const wordRegex = /\((\d+),(\d+),\d+\)([^(]*)/g;
+
+  for (const line of lines) {
+    const lineMatch = lineTimeRegex.exec(line);
+    if (!lineMatch) continue;
+
+    const lineStartTime = parseInt(lineMatch[1]);
+    const lineDuration = parseInt(lineMatch[2]);
+
+    // 提取逐字数据
+    const words: { word: string; startTime: number; duration: number }[] = [];
+    let textContent = line.replace(lineTimeRegex, '');
+    let wordMatch;
+
+    while ((wordMatch = wordRegex.exec(textContent)) !== null) {
+      const wordStartTime = parseInt(wordMatch[1]);
+      const wordDuration = parseInt(wordMatch[2]);
+      const word = wordMatch[3];
+
+      if (word) {
+        words.push({
+          word,
+          startTime: wordStartTime,
+          duration: wordDuration
+        });
+      }
+    }
+
+    // 组合完整歌词文本
+    const fullText = words.map(w => w.word).join('');
+
+    if (fullText.trim()) {
+      result.push({
+        time: lineStartTime,
+        text: fullText,
+        duration: lineDuration,
+        words,
+        isContinuation: false
+      });
+    }
+  }
+
+  return result;
+};
+
 export const fetchLyrics = async (id: number): Promise<LyricLine[]> => {
   try {
-    const data = await fetchWithFailover(`/lyric?id=${id}`, 'lyrics');
+    // 优先使用 /lyric/new 获取逐字歌词
+    const data = await fetchWithFailover(`/lyric/new?id=${id}`, 'lyrics');
 
+    // 检查是否有 yrc 逐字歌词
+    if (data.yrc?.lyric) {
+      console.log('[Lyrics] Found yrc word-level lyrics');
+      const yrcLyrics = parseYrc(data.yrc.lyric);
+
+      if (yrcLyrics.length > 0) {
+        // 尝试匹配翻译
+        const translation = data.tlyric?.lyric ? parseLrc(data.tlyric.lyric) : [];
+
+        return yrcLyrics.map(line => {
+          const transLine = translation.find(t => Math.abs(t.time - line.time) < 500);
+          return {
+            ...line,
+            trans: transLine?.text
+          };
+        });
+      }
+    }
+
+    // 回退到普通 lrc 歌词
+    console.log('[Lyrics] Using standard lrc lyrics');
     const original = data.lrc?.lyric ? parseLrc(data.lrc.lyric) : [];
     const translation = data.tlyric?.lyric ? parseLrc(data.tlyric.lyric) : [];
 
